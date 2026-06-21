@@ -1,0 +1,162 @@
+function [smoothedDRs, meanDR, activePeriods, recruitThresh, nMUsInCohort, pd, x, force_pred, rmse] = ...
+    processTrialDRs_GAM(spiketrain, meanDR, force, cohortRanges, fs, fs_force, firingThreshHz, restThresh, minActiveDuration)
+
+    % Helper function to process a single trial discharge rates
+    % Inputs:
+    % spiketrain - Spiketrain data for the trial (samples x nMUs)
+    % meanDR - mean DR of each MU (1 x nMUs)
+    % force - Force data vector for the trial
+    % fs - Sampling frequency of spiketrains
+    % fs_force - Sampling frequency of force data
+    % cohortRanges - Array (1 x numCohorts+1) specifying cohort threshold edges
+    % firingThreshHz, restThresh, minActiveDuration: parameters to find MU spike trains active periods
+
+    % Get whole trial and ramp durations in seconds
+    trialDur = length(force)/fs_force;
+    
+    if trialDur == 74
+        rampDur = 2;
+    else
+        rampDur = 4;
+    end
+
+    % Remove MUs with less than 100 spikes
+    fewSpikes = sum(full(spiketrain(:,:)),1) < 100;
+    spiketrain(:,fewSpikes) = [];
+    meanDR(fewSpikes) = [];
+    
+    % Get active periods for both grids
+    activePeriods = find_MU_active_periods_v2(spiketrain, firingThreshHz, fs, restThresh, minActiveDuration, 0);
+
+    % Recruitment times
+    recruitTimes = cellfun(@(x) min(x, [], "all"), activePeriods);
+    % Remove MUs recruited outside ramp
+    outSpikes = (recruitTimes < 3) | (recruitTimes > (5+rampDur+2));
+    spiketrain(:,outSpikes) = [];
+    activePeriods(outSpikes) = [];
+    recruitTimes(outSpikes) = [];
+    meanDR(outSpikes) = [];
+    % Recruitment thresholds
+    recruitThresh = force(floor(recruitTimes .* fs_force));
+
+    % Only keep MUs with active periods over 55 seconds
+    activeDurations = cellfun(@(x) max(x,[],"all") - min(x,[],"all"), activePeriods);
+    activeMUs = find(activeDurations > 55);
+    spiketrain = spiketrain(:, activeMUs);
+    meanDR = meanDR(activeMUs);
+    activePeriods = activePeriods(activeMUs);
+    recruitThresh = recruitThresh(activeMUs);
+
+    % Assign MUs to cohorts based on recruitment thresholds
+    nCohorts = length(cohortRanges) - 1;
+    cohortMUs = cell(1, nCohorts);
+    emptyCoh = 0;
+        for c = 1:nCohorts
+            cohortMUs{c} = find(recruitThresh > cohortRanges(c) & recruitThresh <= cohortRanges(c+1));
+            if isempty(cohortMUs{c})
+                emptyCoh = emptyCoh+1;
+            end
+        end
+    
+        % Only continue if there are at least two cohorts
+        if emptyCoh<=2
+            % Create cumulative spike trains for each cohort (binary logic)
+        ensembleSpikeTrains = zeros(size(spiketrain, 1), nCohorts);
+        for c = 1:nCohorts
+            if ~isempty(cohortMUs{c})
+                cohortSpikes = spiketrain(:, cohortMUs{c});
+                ensembleSpikeTrains(:, c) = any(cohortSpikes, 2); % Binary cumulative spike train
+            end
+        end
+    
+        % Find active periods and smooth discharge rates
+        activePeriodsEnsembles = find_MU_active_periods_v2(ensembleSpikeTrains, firingThreshHz, fs, restThresh, minActiveDuration, 0);
+        [smoothedDRs_stand, standTime, ~] = smoothDRs_SVR_standardised(ensembleSpikeTrains, activePeriodsEnsembles, force, fs, fs_force, fs);
+        smoothedDRs_stand = smoothedDRs_stand'; % features in columns
+    
+        % Resample the force signal to match the standard time vector (sampled at fs)
+        timeForce = (0:length(force) - 1) / fs_force; % Original time vector for force
+        force_resamp = interp1(timeForce, force, standTime, 'linear', 0)';
+    
+        % Extract only the ramp-up phase (3s to 11s)
+        rampUpIdx = (standTime >= 3) & (standTime <= (5+rampDur+3));
+        ensembleSmoothedDRs_ramp = smoothedDRs_stand(rampUpIdx, :);
+        force_ramp = force_resamp(rampUpIdx);
+    
+        % Identify cohorts with actual MUs (non-zero smoothed DRs)
+        hasMUs = any(ensembleSmoothedDRs_ramp, 1);  % Logical array, 1 if cohort has at least one non-zero value
+    
+        % Filter predictors to include only cohorts with MUs
+        smoothedDRs = ensembleSmoothedDRs_ramp(:, hasMUs);
+        activityIndicators = smoothedDRs > 0;  % Create activity indicators for non-empty cohorts
+        
+        % OPTIONAL: To get start of activity
+    %     [I,J,V] = find(activityIndicators);
+    %     actStartIdx = min(I); % minimum row
+    
+        % Combine the smoothed DRs and activity indicators
+        predictors = [smoothedDRs, activityIndicators];
+    
+        % Adjust predictor names dynamically based on available cohorts
+        validCohortIdx = find(hasMUs);  % Indices of cohorts with MUs
+        smoothedNames = arrayfun(@(x) sprintf('Cohort%d_DR', x), validCohortIdx, 'UniformOutput', false);
+        activityNames = arrayfun(@(x) sprintf('Cohort%d_Active', x), validCohortIdx, 'UniformOutput', false);
+        predictorNames = [smoothedNames, activityNames];
+    
+        % Fit GAM model only on non-empty cohorts
+        gamModel = fitrgam(predictors, force_ramp, ...
+                           'PredictorNames', predictorNames, ...
+                           'ResponseName', 'Force', ...
+                           'Interactions', 0);
+        
+        % Identify important features using partial dependence
+        pd = zeros(size(predictors, 2),100);
+        x = zeros(100,size(predictors, 2));
+        nMUsInCohort = cellfun(@length, cohortMUs(validCohortIdx));
+    
+        for i = 1:size(predictors, 2)
+            [pd(i,:), x(:,i)] = partialDependence(gamModel, i);
+            % If plot is needed:
+    %         subplot(ceil(sqrt(size(predictors, 2))), ceil(sqrt(size(predictors, 2))), i);
+    %         plotPartialDependence(gamModel, i);
+    %         title(gamModel.ExpandedPredictorNames{i});
+        end
+    
+        pd = pd'; % convert to column-wise again
+    
+    %     if normPD % if post hoc normalisation is enabled    
+    %         pd = pd ./ repmat(nMUsInCohort,[1,2]);
+    %         x = x ./ repmat(nMUsInCohort,[1,2]);
+    %     end
+    
+        % Create final arrays with consistent sizes in case there were empty cohorts
+        if any(not(hasMUs)) 
+            temp_pd = pd;
+            temp_x = x;
+            temp_DR = smoothedDRs;
+            temp_nMUs = nMUsInCohort;
+            pd = nan(size(pd,1), nCohorts*2); % Both DRs and activations were predictors
+            x = nan(size(x,1), nCohorts*2);
+            smoothedDRs = nan(size(smoothedDRs,1), nCohorts);
+            nMUsInCohort = zeros(1, nCohorts);
+            pd(:,[find(hasMUs) find(hasMUs)+nCohorts]) = temp_pd;
+            x(:,[find(hasMUs) find(hasMUs)+nCohorts]) = temp_x;
+            smoothedDRs(:,find(hasMUs)) = temp_DR;
+            nMUsInCohort(:,find(hasMUs)) = temp_nMUs;
+        end
+    
+        % Predict the force using the GAM model and calculate RMSE
+        force_pred = predict(gamModel, array2table(predictors,'VariableNames', gamModel.PredictorNames));
+        rmse = sqrt(mean((force_ramp - force_pred).^2));
+
+        else % everything is nan
+            pd = nan(size(pd,1), nCohorts*2); % Both DRs and activations were predictors
+            x = nan(size(x,1), nCohorts*2);
+            smoothedDRs = nan(size(smoothedDRs,1), nCohorts);
+            nMUsInCohort = zeros(1, nCohorts);
+            force_pred = predict(gamModel, array2table(predictors,'VariableNames', gamModel.PredictorNames));
+        rmse = sqrt(mean((force_ramp - force_pred).^2));
+
+    end
+
+end

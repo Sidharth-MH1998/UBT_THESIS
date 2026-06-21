@@ -1,0 +1,119 @@
+function plotMUActivationsMap(p2pGrids, ElChannelMap, dig_labels, forces, normFlag)
+    % Function to plot MU activation maps for two grids across conditions (digit x force).
+    % Supports non-unique ElChannelMap entries by averaging repeated channels.
+    %
+    % Parameters:
+    %   amplitudeGrids: A cell array (1 x numGrids), each containing a cell array 
+    %                   of dimensions digits x forces x trials. Each cell has a 
+    %                   (channels x MUs) matrix representing MU amplitudes.
+    %   ElChannelMap: A 2D matrix mapping electrode indices to their positions on a grid.
+    %   badchan: vector of indices of bad channels
+    %   digits: A vector of strings representing digit conditions.
+    %   forces: A vector of strings representing force levels.
+    %   normFlag: When set to 1 we normalise the final maps per grid using the max values
+
+    % Validate input
+    if numel(p2pGrids) ~= 2
+        error('This function is designed for two grids. Provide exactly two grids.');
+    end
+    
+    % Get dimensions
+    numDigits = numel(dig_labels);
+    numForces = numel(forces);
+    uniqueChannels = unique(ElChannelMap(:)); % Unique channel indices
+    numChannels = numel(uniqueChannels);
+    gridSize = size(ElChannelMap);
+    ElChannelMap_total = [ElChannelMap+64 , ElChannelMap]; % grid 1 was placed to the right
+
+    
+    % Initialize storage for averaged activation maps
+    avgMapsGrid1 = zeros([numDigits, numForces, gridSize]);
+    avgMapsGrid2 = zeros([numDigits, numForces, gridSize]);
+    avgMapsGrid_total = zeros([numDigits, numForces, gridSize(1), gridSize(2)*2]); % for the joint activation map
+
+    % Process each grid
+    for gridIdx = 1:2
+        for d = 1:numDigits
+            for f = 1:numForces
+                trialAmps = []; % Accumulator for trial data
+                for t = 1:size(p2pGrids{gridIdx}{d, f}, 3)
+                    data = p2pGrids{gridIdx}{d, f, t};
+                    if ~isempty(data)
+                        % Compute trial normalization
+                        numMUs = size(data, 2); % Number of MUs in the trial
+                        % Sum all MUs per trial (across columns)
+                        trialSum = sum(data, 2) / numMUs; % Normalize by the number of MUs
+                        trialAmps = [trialAmps, trialSum];
+                    end
+                end
+                % Compute the mean across trials
+                if ~isempty(trialAmps)
+                    avgMap = mean(trialAmps, 2,'omitnan'); % Mean across trials
+                else
+                    avgMap = zeros(numChannels, 1); % Default to zeros if no MUs
+                end
+                
+                % Handle non-unique ElChannelMap
+                reshapedMap = zeros(gridSize);
+                for ch = 1:numChannels
+                    channelIdx = uniqueChannels(ch);
+                    mask = (ElChannelMap == channelIdx); % Find all positions for this channel
+                    reshapedMap(mask) = avgMap(channelIdx); % Assign average amplitude
+                end
+                
+                % Store results
+                if gridIdx == 1
+                    avgMapsGrid1(d, f, :, :) = reshapedMap;
+                else
+                    avgMapsGrid2(d, f, :, :) = reshapedMap;
+                end
+            end
+        end
+    end
+
+    % Replace bad channels on overall concatenated map
+    for d = 1:numDigits
+        for f = 1:numForces
+            avgMapsGrid_total(d,f,:,:) = [squeeze(avgMapsGrid2(d,f,:,:)), squeeze(avgMapsGrid1(d,f,:,:))]; % grid 1 was placed to the right
+            badchan_total = isnan(squeeze(avgMapsGrid_total(d,f,:,:)));
+            badchan_total = ElChannelMap_total(badchan_total);
+            if not(isempty(badchan_total))
+                avgMapsGrid_total(d,f,:,:) = replaceBadChannels_v2(squeeze(avgMapsGrid_total(d,f,:,:)), ElChannelMap_total, badchan_total);
+            end
+        end
+    end
+    
+    % Normalise when required
+    if normFlag
+        % Compute normalization factors
+        normFactorsGrid1 = max(avgMapsGrid1, [], [3 4]);
+        normFactorsGrid2 = max(avgMapsGrid2, [], [3 4]);
+        
+        % Normalise maps
+        for d = 1:numDigits
+            for f = 1:numForces
+                avgMapsGrid1(d,f,:,:) = avgMapsGrid1(d,f,:,:) / normFactorsGrid1(d,f);
+                avgMapsGrid2(d,f,:,:) = avgMapsGrid2(d,f,:,:) / normFactorsGrid2(d,f);
+            end
+        end
+    end
+
+    % Plot the results
+    figure;
+    tiledlayout(numDigits, numForces, 'TileSpacing', 'Compact');
+    for d = 1:numDigits
+        for f = 1:numForces
+            concatenatedMap = squeeze(avgMapsGrid_total(d,f,:,:));
+            % Plot
+            nexttile;
+            imagesc(concatenatedMap);
+            colormap('hot'); % Adjust color scheme if desired
+            colorbar;
+            axis equal tight;
+            title(sprintf('%s | %s%%', dig_labels{d}, forces{f}));
+            xlabel('Channels');
+            ylabel('Channels');
+        end
+    end
+    sgtitle('MU Activation Maps');
+end

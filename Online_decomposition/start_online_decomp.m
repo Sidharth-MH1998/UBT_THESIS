@@ -1,0 +1,30 @@
+% START_REALTIME_NOVECENTO_SESSION
+% -------------------------------------------------------------------------
+% Required in workspace:
+%   Calib_data
+%   recordedEMG
+%   fs
+%   badchan
+
+assert(exist('Calib_data', 'var') == 1, 'Calib_data not found in workspace.');
+assert(exist('recordedEMG', 'var') == 1, 'recordedEMG not found in workspace.');
+assert(exist('fs', 'var') == 1, 'fs not found in workspace.');
+
+if exist('badchan', 'var') ~= 1
+    badchan = [];
+end
+
+cfg = struct();
+cfg.activeInputs = [1 2];
+cfg.WiFi = 0;
+cfg.calibChannels = 1:64;
+cfg.emgChannels = 1:64;
+cfg.windowBaseCols = 64;
+cfg.visibleWindowSec = 10;
+cfg.onlineDurationSec = inf;
+cfg.recordEMG = true;
+cfg.printEveryNWindows = 10;
+cfg.frYLim = 60;
+cfg.forceInputChannelCounts = [64 64 0 0 0 0 0 0 0 0];
+
+data_out = online_decomp(Calib_data, recordedEMG, fs, badchan, cfg);
