@@ -21,7 +21,7 @@ cfg.socketTimeoutSec = 100;
 % Inputs and channels.
 cfg.activeInputs = 1;
 cfg.emgChannels = 1:64;
-cfg.previewChannels = 1:64;
+cfg.previewChannels = 1:4:64;
 
 % Timing.
 cfg.blockDurationSec = 1;

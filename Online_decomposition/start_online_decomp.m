@@ -15,7 +15,7 @@ if exist('badchan', 'var') ~= 1
 end
 
 cfg = struct();
-cfg.activeInputs = [1 2];
+cfg.activeInputs = [1];
 cfg.WiFi = 0;
 cfg.calibChannels = 1:64;
 cfg.emgChannels = 1:64;
@@ -25,6 +25,6 @@ cfg.onlineDurationSec = inf;
 cfg.recordEMG = true;
 cfg.printEveryNWindows = 10;
 cfg.frYLim = 60;
-cfg.forceInputChannelCounts = [64 64 0 0 0 0 0 0 0 0];
+cfg.forceInputChannelCounts = [64 0 0 0 0 0 0 0 0 0];
 
 data_out = online_decomp(Calib_data, recordedEMG, fs, badchan, cfg);

@@ -1,12 +1,12 @@
 %parameters
-EMG=filteredEMG;
+EMG=filteredEMG(:,12000:end);
 fs = 2000;
 badchan = [];
 padLen = 200;
 initialization = 1;
-NITER = 70;
+NITER = 50;
 nbextchan =1024;        
-silthr = 0.7;
+silthr = 0.8;
 covfilter = 1;
 covthr = 0.5;
 differentialmode = 0;
@@ -16,7 +16,7 @@ duplicatesthresh = 0.3;
 CoVDR = 0.3;
 contrastfunc = 'skew';
 refineMU = 0;
-preproc_flag = 0;
+preproc_flag = 1;
 
 
 % 1. CALIBRATION (Run offline code once to get the filters)
