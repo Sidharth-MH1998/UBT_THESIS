@@ -19,10 +19,10 @@
 fs = 2000;                 % EMG sampling frequency in Hz
 fs_force = 50;             % Force sampling frequency in Hz
 
-plot_force_overlay = 1;    % 1 = plot force on raster, 0 = no force
+plot_force_overlay = 0;    % 1 = plot force on raster, 0 = no force
 
 plot_start_sec = [];       % Start time in seconds. [] = start at 0 s
-plot_stop_sec = 5;        % Stop time in seconds. [] = use full recording
+plot_stop_sec = [];        % Stop time in seconds. [] = use full recording
 
 plot_firing_rate = 0;      % 1 = add firing-rate subplot, 0 = raster only
 fr_ylim = [0 60];          % Firing-rate y-axis limits in Hz

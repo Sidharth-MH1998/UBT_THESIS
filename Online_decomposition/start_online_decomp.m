@@ -2,12 +2,15 @@
 % -------------------------------------------------------------------------
 % Required in workspace:
 %   Calib_data
-%   recordedEMG
+%   recordedEMG or EMG
 %   fs
 %   badchan
 
 assert(exist('Calib_data', 'var') == 1, 'Calib_data not found in workspace.');
-assert(exist('recordedEMG', 'var') == 1, 'recordedEMG not found in workspace.');
+if exist('recordedEMG', 'var') ~= 1 && exist('trimmedEMG', 'var') == 1
+    recordedEMG = trimmedEMG;
+end
+assert(exist('recordedEMG', 'var') == 1, 'recordedEMG/EMG not found in workspace.');
 assert(exist('fs', 'var') == 1, 'fs not found in workspace.');
 
 if exist('badchan', 'var') ~= 1
@@ -25,6 +28,10 @@ cfg.onlineDurationSec = inf;
 cfg.recordEMG = true;
 cfg.printEveryNWindows = 10;
 cfg.frYLim = 60;
-cfg.forceInputChannelCounts = [64 0 0 0 0 0 0 0 0 0];
+cfg.forceInputChannelCounts = [70 0 0 0 0 0 0 0 0 0];
+cfg.HRES = zeros(10, 1);
+cfg.HRES(1) = 1;
+cfg.FsampCode = zeros(10, 1);
+cfg.FsampCode(1) = 1;
 
 data_out = online_decomp(Calib_data, recordedEMG, fs, badchan, cfg);

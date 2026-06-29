@@ -1,7 +1,7 @@
 %parameters
-EMG=filteredEMG(:,12000:end);
+EMG=trimmedEMG;
 fs = 2000;
-badchan = [];
+badchan = [12 64 63];
 padLen = 200;
 initialization = 1;
 NITER = 50;

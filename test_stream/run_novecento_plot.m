@@ -25,7 +25,7 @@ cfg.previewChannels = 1:4:64;
 
 % Timing.
 cfg.blockDurationSec = 1;
-cfg.visibleWindowSec = 10;
+cfg.visibleWindowSec = 5;
 
 % Novecento conversion and packet geometry.
 cfg.GainFactor = 0.2861;
@@ -51,7 +51,7 @@ cfg.FsampCode = zeros(10, 1);
 
 cfg.IN_Active(cfg.activeInputs) = 1;
 cfg.Gain(cfg.activeInputs) = 1;
-cfg.HRES(cfg.activeInputs) = 0;
+cfg.HRES(cfg.activeInputs) = 1;
 cfg.HPF(cfg.activeInputs) = 1;
 cfg.FsampCode(cfg.activeInputs) = 1; % 2000 Hz
 
