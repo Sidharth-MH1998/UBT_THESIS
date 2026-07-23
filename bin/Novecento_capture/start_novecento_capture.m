@@ -13,7 +13,7 @@ cfg.blockDurationSec = 1;
 cfg.visibleWindowSec = 15;
 
 %% Hardware channel geometry
-cfg.forceInputChannelCounts = [64 64 0 0 0 0 0 0 0 0];
+cfg.forceInputChannelCounts = [70 0 0 0 0 0 0 0 0 0];
 
 %% Start capture
 novecento_online(cfg);

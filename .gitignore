@@ -5,3 +5,5 @@ test_data/
 # MATLAB editor autosaves
 *.asv
 *.m~
+*.mat
+*.mat

@@ -234,16 +234,16 @@ cfg.IP_wifi = '192.168.1.1';
 
 % Acquisition and live preview.
 cfg.activeInputs = [1 2];
-cfg.emgChannels = 1:128;
+cfg.emgChannels = [1:64 71:134];
 cfg.blockDurationSec = 1;
-cfg.previewChannels = 64;
+cfg.previewChannels = 1:8:128;
 cfg.visibleWindowSec = 3;
 
 % Hardware read/geometry settings.
 cfg.socketTimeoutSec = 100;
 cfg.hardwareQueryRetries = 3;
 cfg.hardwareQueryPauseSec = 0.2;
-cfg.forceInputChannelCounts = [64 64 0 0 0 0 0 0 0 0];
+cfg.forceInputChannelCounts = [70 70 0 0 0 0 0 0 0 0];
 
 % Device configuration bytes.
 cfg.GainFactor = 0.2861;

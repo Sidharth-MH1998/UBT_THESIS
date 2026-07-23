@@ -1,12 +1,12 @@
 %parameters
 EMG=trimmedEMG;
 fs = 2000;
-badchan = [12 64 63];
+badchan = [];
 padLen = 200;
 initialization = 1;
 NITER = 50;
 nbextchan =1024;        
-silthr = 0.8;
+silthr = 0.9;
 covfilter = 1;
 covthr = 0.5;
 differentialmode = 0;
@@ -15,7 +15,7 @@ peeloffwin = 0.025;
 duplicatesthresh = 0.3;
 CoVDR = 0.3;
 contrastfunc = 'skew';
-refineMU = 0;
+refineMU = 1;
 preproc_flag = 1;
 
 

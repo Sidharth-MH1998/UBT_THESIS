@@ -433,7 +433,9 @@ cfg.IP_wifi = '192.168.1.1';
 
 cfg.activeInputs = [1 2];
 cfg.calibChannels = 1:128;
-cfg.emgChannels = 1:128;
+% Two 64-electrode Novecento probes are streamed as 70 rows each:
+% keep rows 1:64 from input 1 and rows 71:134 from input 2.
+cfg.emgChannels = [1:64 71:134];
 
 cfg.onlineDurationSec = inf;
 cfg.visibleWindowSec = 20;

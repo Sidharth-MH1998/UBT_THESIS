@@ -1,9 +1,9 @@
 %% Visualise recorded EMG channels
 
-emgData = recordedEMG ;        % Put your EMG matrix here, e.g. emgData = recordedEMG;
+emgData =trimmedEMG ;        % Put your EMG matrix here, e.g. emgData = recordedEMG;
 samplingRate = 2000;  % Put your sampling rate here in Hz
 
-channelsToPlot =[1:64];%[1 8 16 24 32 40 48 56 64 72 80 88 96 104 112 120 ];  % [] plots all channels. Example: [1 2 3 10]
+channelsToPlot =[1:128];%[1 8 16 24 32 40 48 56 64 72 80 88 96 104 112 120 ];  % [] plots all channels. Example: [1 2 3 10]
 visibleWindowSec = Inf; % Inf plots full recording. Example: 10 plots first 10 sec.
 
 

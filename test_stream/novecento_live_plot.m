@@ -2,11 +2,11 @@ function session = novecento_live_plot(cfg)
 %NOVECENTO_LIVE_PLOT Read Novecento+ EMG blocks and plot them live.
 %
 % Outputs are also written to the MATLAB base workspace:
-%   recordedEMG
+%   emgData
 %   recordedDurationSec
 %   recordStartSample
 %   recordEndSample
-%   trimmedEMG
+%   recordedEMG
 
 if nargin < 1 || ~isstruct(cfg)
     error('novecento_live_plot requires a complete cfg structure.');
@@ -25,7 +25,7 @@ set(fig, 'WindowKeyPressFcn', @(src, event) handle_marker_keypress(src, event));
 
 fprintf('\n=== Novecento live plot ===\n');
 fprintf('Connected to %s. Close the figure to stop safely.\n', dev.ip);
-fprintf('Press r to mark start, q to mark stop and create trimmedEMG.\n\n');
+fprintf('Press r to mark start, q to mark stop and create trimmedEMG(recoredEMG).\n\n');
 
 while ishandle(fig)
     rawAll = novecento_read_emg_block(dev, cfg.activeInputs, samplesPerBlock);
@@ -38,8 +38,8 @@ while ishandle(fig)
     app = getappdata(fig, 'novecentoApp');
     app.blockCounter = app.blockCounter + 1;
     app.lastRawBlock = rawBlock;
-    app.recordedEMG = [app.recordedEMG rawBlock]; %#ok<AGROW>
-    app.recordedDurationSec = size(app.recordedEMG, 2) / app.fs;
+    app.emgData = [app.emgData rawBlock]; %#ok<AGROW>
+    app.recordedDurationSec = size(app.emgData, 2) / app.fs;
 
     assign_session_to_base(app);
     setappdata(fig, 'novecentoApp', app);
@@ -115,11 +115,11 @@ app.cfg = cfg;
 app.fs = fs;
 app.blockCounter = 0;
 app.lastRawBlock = [];
-app.recordedEMG = [];
+app.emgData = [];
 app.recordedDurationSec = 0;
 app.recordStartSample = [];
 app.recordEndSample = [];
-app.trimmedEMG = [];
+app.recordedEMG = [];
 app.recordStateText = 'Idle';
 
 end
@@ -131,16 +131,16 @@ if ~ishandle(fig)
 end
 
 app = getappdata(fig, 'novecentoApp');
-if isempty(app.recordedEMG)
+if isempty(app.emgData)
     return;
 end
 
-previewRows = get_preview_rows(app.cfg.previewChannels, size(app.recordedEMG, 1));
+previewRows = get_preview_rows(app.cfg.previewChannels, size(app.emgData, 1));
 channelLabels = app.cfg.emgChannels(previewRows);
-nVisible = get_visible_sample_count(app.cfg.visibleWindowSec, app.fs, size(app.recordedEMG, 2));
+nVisible = get_visible_sample_count(app.cfg.visibleWindowSec, app.fs, size(app.emgData, 2));
 
-visibleEMG = app.recordedEMG(previewRows, end - nVisible + 1:end);
-firstSample = size(app.recordedEMG, 2) - nVisible + 1;
+visibleEMG = app.emgData(previewRows, end - nVisible + 1:end);
+firstSample = size(app.emgData, 2) - nVisible + 1;
 
 novecento_plot_stacked(ui.axRaw, visibleEMG, channelLabels, app.fs, firstSample, app.cfg.visibleWindowSec);
 title(ui.axRaw, sprintf('Raw EMG Preview | showing %d channel(s)', numel(previewRows)));
@@ -160,13 +160,13 @@ if ~ishandle(fig)
 end
 
 app = getappdata(fig, 'novecentoApp');
-currentSample = size(app.recordedEMG, 2);
+currentSample = size(app.emgData, 2);
 
 switch lower(event.Key)
     case 'r'
         app.recordStartSample = currentSample + 1;
         app.recordEndSample = [];
-        app.trimmedEMG = [];
+        app.recordedEMG = [];
         app.recordStateText = sprintf('START at sample %d', app.recordStartSample);
 
     case 'q'
@@ -179,7 +179,7 @@ switch lower(event.Key)
             endSample = max(startSample, min(app.recordEndSample, currentSample));
             app.recordStartSample = startSample;
             app.recordEndSample = endSample;
-            app.trimmedEMG = app.recordedEMG(:, startSample:endSample);
+            app.recordedEMG = app.emgData(:, startSample:endSample);
             app.recordStateText = sprintf('STOP at sample %d | trimmedEMG ready', endSample);
         end
 
@@ -216,11 +216,11 @@ end
 
 function assign_session_to_base(app)
 
-assignin('base', 'recordedEMG', app.recordedEMG);
+assignin('base', 'emgData', app.emgData);
 assignin('base', 'recordedDurationSec', app.recordedDurationSec);
 assignin('base', 'recordStartSample', app.recordStartSample);
 assignin('base', 'recordEndSample', app.recordEndSample);
-assignin('base', 'trimmedEMG', app.trimmedEMG);
+assignin('base', 'recordedEMG', app.recordedEMG);
 
 end
 

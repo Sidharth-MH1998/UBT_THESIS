@@ -1,17 +1,12 @@
  % RUN_NOVECENTO_PLOT
 % -------------------------------------------------------------------------
-% Main entry point for reading live Novecento+ EMG data and plotting it.
-%
-% Before running:
-%   1. Connect Novecento+ by ethernet.
-%   2. Adjust the config values below if your input/channel setup changes.
-%   3. Run this script from MATLAB.
-%
+% reading live Novecento+ EMG data and plotting it.
 % Keyboard shortcuts while the plot window is open:
 %   r = mark the start sample
 %   q = mark the stop sample and create trimmedEMG
 %   close figure = stop Novecento streaming safely
-
+clear;
+close all;
 cfg = struct();
 
 % Connection timeout. IP 169.254.1.10 and port 23456 are fixed in
@@ -19,13 +14,13 @@ cfg = struct();
 cfg.socketTimeoutSec = 100;
 
 % Inputs and channels.
-cfg.activeInputs = 1;
-cfg.emgChannels = 1:64;
-cfg.previewChannels = 1:4:64;
+cfg.activeInputs = [1 2];
+cfg.emgChannels = [1:64 71:134];
+cfg.previewChannels = 1:8:128;
 
 % Timing.
 cfg.blockDurationSec = 1;
-cfg.visibleWindowSec = 5;
+cfg.visibleWindowSec = 15;
 
 % Novecento conversion and packet geometry.
 cfg.GainFactor = 0.2861;
@@ -53,6 +48,6 @@ cfg.IN_Active(cfg.activeInputs) = 1;
 cfg.Gain(cfg.activeInputs) = 1;
 cfg.HRES(cfg.activeInputs) = 1;
 cfg.HPF(cfg.activeInputs) = 1;
-cfg.FsampCode(cfg.activeInputs) = 1; % 2000 Hz
+cfg.FsampCode(cfg.activeInputs) = 1; % 2000 HzFsampVal = [500 2000 4000 8000];
 
 novecento_live_plot(cfg);

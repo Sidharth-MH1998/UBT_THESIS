@@ -6,4 +6,5 @@ function [PulseT, Distime, esample2] = getspikesonline(EMGtmp, extensionfactor, 
 
     PulseT = ((MUfilt * esample) .* abs(MUfilt * esample)) ./ norm'; 
     [spikes1, ~] = islocalmax(PulseT', 1, 'MinSeparation', round(fsamp*0.02)); %20ms
-    Distime = (abs(PulseT' .* spikes1 - noise_centroids) > abs(PulseT' .* spikes1 - spike_centroids));
+    isSpikeClass = abs(PulseT' - noise_centroids) > abs(PulseT' - spike_centroids);
+    Distime = spikes1 & isSpikeClass;

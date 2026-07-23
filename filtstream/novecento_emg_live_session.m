@@ -645,7 +645,7 @@ end
 
 %% Draw stacked EMG preview
 function novecento_plot_stacked(ax, block, channelLabels, fs, firstSample, visibleWindowSec)
-% Center, normalize, clip, and offset channels by their channel labels.
+% Plot raw converted traces with stacked offsets.
 
 cla(ax);
 if isempty(block)
@@ -653,17 +653,13 @@ if isempty(block)
 end
 
 plotBlock = double(block);
-plotBlock = plotBlock - median(plotBlock, 2);
-channelScale = std(plotBlock, 0, 2);
-channelScale(channelScale < eps) = 1;
-plotBlock = 0.35 * plotBlock ./ channelScale;
-plotBlock = max(min(plotBlock, 0.45), -0.45);
+offset = max(max(std(plotBlock, 0, 2) * 6), 1);
 
 xSec = ((firstSample - 1):(firstSample + size(plotBlock, 2) - 2)) / fs;
 
 hold(ax, 'on');
 for ch = 1:size(plotBlock, 1)
-    plot(ax, xSec, plotBlock(ch, :) + channelLabels(ch), 'LineWidth', 0.8);
+    plot(ax, xSec, plotBlock(ch, :) + offset * (ch - 1), 'LineWidth', 0.8);
 end
 hold(ax, 'off');
 
@@ -678,8 +674,9 @@ else
     xlim(ax, [xEnd - visibleWindowSec xEnd]);
 end
 
-yticks(ax, channelLabels);
-ylim(ax, [min(channelLabels) - 1 max(channelLabels) + 1]);
+yticks(ax, offset * (0:(numel(channelLabels) - 1)));
+yticklabels(ax, cellstr(num2str(channelLabels(:))));
+ylim(ax, [-offset offset * numel(channelLabels)]);
 
 end
 
