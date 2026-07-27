@@ -51,7 +51,8 @@ cleanupObj = onCleanup(@() closeSerialObject(serialObj));
 
 channelCalibData = initializeCalibrationData(numForceChan);
 calibrationInProgress = false(1, numForceChan);
-calibrationStartTime = zeros(1, numForceChan);
+% tic returns uint64 timer tokens; preserve that type so toc accepts them.
+calibrationStartTime = zeros(1, numForceChan, "uint64");
 
 windowSize = 0.25;
 fs_window = max(1, round(windowSize * fs_force));
@@ -270,7 +271,7 @@ function updateForcePlot(ax, forceLines, forceData, fs_force, numForceChan, disp
     end
 
     xlim(ax, [max(0, timeToPlot(end) - displayTime), timeToPlot(end) + 2]);
-    ylim(ax, "auto");
+    ylim(ax, [-20, 100]);
 end
 
 function [calibrationInProgress, calibrationStartTime, channelCalibData, ...

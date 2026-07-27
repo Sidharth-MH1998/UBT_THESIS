@@ -47,8 +47,17 @@ nSamples = fsInput * nBaseCols / 500;
 if cfg.HRES(inputIdx) == 0
     emg = cfg.GainFactor * double(reshape(linearValues, numChannels, nSamples));
 else
-    int32Values = typecast(linearValues, 'int32');
-    emg = cfg.GainFactor * double(reshape(int32Values, numChannels, nSamples));
+    % The probe sends each HRES sample as [highWord, lowWord], while
+    % MATLAB typecast on this little-endian system expects
+    % [lowWord, highWord]. Swap each pair before reconstructing int32.
+    wordPairs = reshape(linearValues, 2, []);
+    reorderedWords = reshape(flipud(wordPairs), 1, []);
+    int32Values = typecast(reorderedWords, 'int32');
+
+    % HRES uses a conversion step four times smaller than 16-bit mode.
+    hresGainFactor = cfg.GainFactor / 4;
+    emg = hresGainFactor * double(reshape( ...
+        int32Values, numChannels, nSamples));
 end
 
 end

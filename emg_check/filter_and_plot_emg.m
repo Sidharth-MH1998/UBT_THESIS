@@ -4,7 +4,7 @@
 %   emgData = trimmedEMG;
 %   emgData = recordedEMG;
 
-emgData = trimmedEMG;
+emgData = emgValues;
 samplingRate = 2000;
 
 channelsToPlot = 1:16;  % [] plots all channels

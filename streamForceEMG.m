@@ -100,6 +100,8 @@ recording = false;
 recordingTracking = false;
 recordStartForce = [];
 recordEndForce = [];
+recordStartEMG = [];
+recordEndEMG = [];
 zeroed = false;
 
 elapsedExecTimes = zeros(1, maxForceSamples);
@@ -214,6 +216,9 @@ while ishandle(fig)
             ax_f.Color = [0.9, 1, 0.9];
 
             recordStartForce = currentForceIndex + 1;
+            if EmgToggle
+                recordStartEMG = currentEMGIndex + 1;
+            end
 
             tWait = str2double(tWaitBox.String);
             tSlope = str2double(tSlopeBox.String);
@@ -264,6 +269,9 @@ while ishandle(fig)
                 btnRecordTracking.Value = false;
 
                 recordEndForce = currentForceIndex - 1;
+                if EmgToggle
+                    recordEndEMG = currentEMGIndex;
+                end
 
                 participantID = participantIDBox.String;
                 trial = str2double(trialBox.String);
@@ -281,8 +289,23 @@ while ishandle(fig)
                         participantID, session, digit, forceTarget, trial);
 
                     recordedForce = cropCircularForceData(forceData, recordStartForce, recordEndForce, maxForceSamples);
-                    save(filename, 'forceData', 'recordedForce', 'recordStartForce', 'recordEndForce', ...
-                        'fs_force', 'calibrationFactors', 'zeroValues', 'reverseStates', 'tStamps');
+                    if EmgToggle
+                        recordedEMG = cropCircularEMGData(emgData, recordStartEMG, ...
+                            recordEndEMG, maxEMGSamples);
+                        emgChannels = emgCfg.emgChannels;
+                        activeEMGInputs = emgCfg.activeInputs;
+                        save(filename, 'forceData', 'recordedForce', ...
+                            'recordStartForce', 'recordEndForce', 'fs_force', ...
+                            'calibrationFactors', 'zeroValues', 'reverseStates', ...
+                            'tStamps', 'recordedEMG', 'recordStartEMG', ...
+                            'recordEndEMG', 'fs_emg', 'emgChannels', ...
+                            'activeEMGInputs', '-v7.3');
+                    else
+                        save(filename, 'forceData', 'recordedForce', ...
+                            'recordStartForce', 'recordEndForce', 'fs_force', ...
+                            'calibrationFactors', 'zeroValues', 'reverseStates', ...
+                            'tStamps');
+                    end
 
                     disp(['Recording saved as: ', filename]);
                 end
@@ -297,11 +320,17 @@ while ishandle(fig)
         if btnRecord.Value && ~recording
             recording = true;
             recordStartForce = currentForceIndex;
+            if EmgToggle
+                recordStartEMG = currentEMGIndex + 1;
+            end
             ax_f.Color = [1, 0.95, 0.9];
             disp('Manual recording started.');
         elseif ~btnRecord.Value && recording
             recording = false;
             recordEndForce = currentForceIndex;
+            if EmgToggle
+                recordEndEMG = currentEMGIndex;
+            end
             ax_f.Color = [1, 1, 1];
 
             participantID = participantIDBox.String;
@@ -317,8 +346,23 @@ while ishandle(fig)
                 filename = sprintf('S%s_ss%d_f%d_t%d.mat', participantID, session, forceTarget, trial);
 
                 recordedForce = cropCircularForceData(forceData, recordStartForce, recordEndForce, maxForceSamples);
-                save(filename, 'forceData', 'recordedForce', 'recordStartForce', 'recordEndForce', ...
-                    'fs_force', 'calibrationFactors', 'zeroValues', 'reverseStates', 'tStamps');
+                if EmgToggle
+                    recordedEMG = cropCircularEMGData(emgData, recordStartEMG, ...
+                        recordEndEMG, maxEMGSamples);
+                    emgChannels = emgCfg.emgChannels;
+                    activeEMGInputs = emgCfg.activeInputs;
+                    save(filename, 'forceData', 'recordedForce', ...
+                        'recordStartForce', 'recordEndForce', 'fs_force', ...
+                        'calibrationFactors', 'zeroValues', 'reverseStates', ...
+                        'tStamps', 'recordedEMG', 'recordStartEMG', ...
+                        'recordEndEMG', 'fs_emg', 'emgChannels', ...
+                        'activeEMGInputs', '-v7.3');
+                else
+                    save(filename, 'forceData', 'recordedForce', ...
+                        'recordStartForce', 'recordEndForce', 'fs_force', ...
+                        'calibrationFactors', 'zeroValues', 'reverseStates', ...
+                        'tStamps');
+                end
 
                 disp(['Recording saved as: ', filename]);
             end
@@ -543,6 +587,23 @@ function recordedForce = cropCircularForceData(forceData, recordStartForce, reco
     end
 end
 
+function recordedEMG = cropCircularEMGData(emgData, recordStartEMG, recordEndEMG, maxEMGSamples)
+    if isempty(recordStartEMG) || isempty(recordEndEMG) || recordEndEMG < 1
+        recordedEMG = [];
+        return
+    end
+
+    recordStartEMG = max(1, min(recordStartEMG, maxEMGSamples));
+    recordEndEMG = max(1, min(recordEndEMG, maxEMGSamples));
+
+    if recordStartEMG <= recordEndEMG
+        recordedEMG = emgData(:, recordStartEMG:recordEndEMG);
+    else
+        recordedEMG = [emgData(:, recordStartEMG:end), ...
+            emgData(:, 1:recordEndEMG)];
+    end
+end
+
 function closeSerialObject(serialObj)
     if ~isempty(serialObj) && isvalid(serialObj)
         fclose(serialObj);
@@ -625,7 +686,7 @@ function cfg = makeNovecentoConfig(blockDurationSec)
     cfg.FsampCode = zeros(10, 1);
     cfg.IN_Active(cfg.activeInputs) = 1;
     cfg.Gain(cfg.activeInputs) = 1;
-    cfg.HRES(cfg.activeInputs) = 1;
+    cfg.HRES(cfg.activeInputs) = 0;
     cfg.HPF(cfg.activeInputs) = 1;
     cfg.FsampCode(cfg.activeInputs) = 1;
 end

@@ -6,10 +6,12 @@
 
 cfg.activeInputs = [1 2];             % Novecento inputs used for recording.
 cfg.emgChannels = [1:64 71:134];      % Channels retained from the stacked inputs.
-cfg.previewChannels = 1:8:128;        % Retained-channel indices shown in the plot.
+cfg.previewChannels = 1:8:128;         % Retained-channel indices shown in the plot.
 cfg.blockDurationSec = 1;             % Amount of data read on each loop, in seconds.
 cfg.visibleWindowSec = 15;            % Duration shown in the moving plot, in seconds.
 cfg.recordDurationSec = 60;           % USER SETTING: total recording time in seconds.
+cfg.spectrumMaximumHz = 700;          % Highest frequency displayed in the PSD plots.
+cfg.lineFrequencyHz = 50;             % Power-line frequency used for harmonic markers.
 
 %% 2. Device settings
 
@@ -36,7 +38,7 @@ cfg.FsampCode = zeros(10, 1); % Sampling-rate code: 0=500, 1=2000, 2=4000, 3=800
 
 cfg.IN_Active(activeInputs) = 1; % Enable all inputs listed in activeInputs.
 cfg.Gain(activeInputs) = 1;      % Apply hardware gain code 1 to active inputs.
-cfg.HRES(activeInputs) = 1;      % Acquire active inputs using 32-bit resolution.
+cfg.HRES(activeInputs) = 0;      % Acquire active inputs using 32-bit resolution.
 cfg.HPF(activeInputs) = 1;       % Enable the hardware high-pass filter.
 cfg.FsampCode(activeInputs) = 1; % Sample active inputs at 2000 Hz.
 
@@ -92,16 +94,10 @@ fprintf('Recording complete: %d channels, %.1f seconds, %.0f Hz.\n', ...
     size(emgValues, 1), size(emgValues, 2) / samplingFrequency, ...
     samplingFrequency);
 
-%% 7. Calculate and display RMS for every recorded EMG channel
+%% 7. Calculate and plot RMS for every recorded EMG channel
 
 channelRMS = sqrt(mean(double(emgValues).^2, 2));
-
-fprintf('\nRMS values for all recorded EMG channels:\n');
-fprintf('Recorded row\tSource channel\tRMS\n');
-for channelIdx = 1:numel(channelRMS)
-    fprintf('%d\t\t%d\t\t%.6f\n', channelIdx, ...
-        cfg.emgChannels(channelIdx), channelRMS(channelIdx));
-end
+plotChannelRMS(channelRMS);
 
 %% 8. Close the live plot, then show the power spectra
 
@@ -114,43 +110,101 @@ end
 
 previewLabels = cfg.emgChannels(cfg.previewChannels);
 plotPowerSpectrum(emgValues(cfg.previewChannels, :), ...
-    previewLabels, samplingFrequency);
+    previewLabels, samplingFrequency, cfg.spectrumMaximumHz, ...
+    cfg.lineFrequencyHz);
+
+
+%% Local function: plot RMS for both 64-channel grids
+
+function plotChannelRMS(channelRMS)
+
+figure('Name', 'Recorded-channel RMS', ...
+    'NumberTitle', 'off', 'Color', 'w');
+
+subplot(2, 1, 1);
+bar(1:64, channelRMS(1:64));
+grid on;
+xlabel('Input 1 EMG channel');
+ylabel('RMS');
+title('Input 1: RMS of channels 1-64');
+xlim([0.5 64.5]);
+
+subplot(2, 1, 2);
+bar(1:64, channelRMS(65:128));
+grid on;
+xlabel('Input 2 EMG channel');
+ylabel('RMS');
+title('Input 2: RMS of channels 1-64');
+xlim([0.5 64.5]);
+
+end
 
 
 %% Local function: plot all preview-channel power spectra
 
-function plotPowerSpectrum(previewData, channelLabels, fs)
+function plotPowerSpectrum(previewData, channelLabels, fs, maximumHz, lineHz)
 
-% Remove the channel means so DC offsets do not dominate the spectrum.
+% Remove DC offsets before estimating the spectra.
 spectrumData = double(previewData);
 spectrumData = spectrumData - mean(spectrumData, 2);
 
-% Calculate a one-sided power spectral density using the complete recording.
+% Welch settings from freq_spectrum.m: one-second Hann windows and 50% overlap.
 nSamples = size(spectrumData, 2);
-nFft = 2^nextpow2(nSamples);
-fftValues = fft(spectrumData, nFft, 2);
-nPositive = floor(nFft / 2) + 1;
-powerDensity = abs(fftValues(:, 1:nPositive)).^2 / (fs * nSamples);
+welchWindowSamples = min(nSamples, max(8, round(fs)));
+welchWindow = hann(welchWindowSamples, 'periodic');
+welchOverlap = floor(welchWindowSamples / 2);
+nFft = max(2048, 2^nextpow2(welchWindowSamples));
 
-if nPositive > 2
-    powerDensity(:, 2:end-1) = 2 * powerDensity(:, 2:end-1);
+nChannels = size(spectrumData, 1);
+powerDensity = zeros(nFft / 2 + 1, nChannels);
+for channelIdx = 1:nChannels
+    [powerDensity(:, channelIdx), frequencyHz] = pwelch( ...
+        spectrumData(channelIdx, :), welchWindow, welchOverlap, ...
+        nFft, fs, 'onesided');
 end
 
-frequencyHz = (0:nPositive - 1) * fs / nFft;
 powerDb = 10 * log10(powerDensity + eps);
+plotMaximumHz = min(maximumHz, fs / 2);
 
-figure('Name', 'Preview-channel EMG power spectra', ...
+% Plot every previewed channel separately in one tiled figure.
+spectrumFigure = figure('Name', 'Preview-channel EMG power spectra', ...
     'NumberTitle', 'off', 'Color', 'w');
-plot(frequencyHz, powerDb', 'LineWidth', 0.8);
-grid on;
-xlabel('Frequency (Hz)');
-ylabel('Power spectral density (dB/Hz)');
-title('Power spectra of all previewed EMG channels');
-xlim([0 fs / 2]);
+numberOfColumns = min(4, nChannels);
+numberOfRows = ceil(nChannels / numberOfColumns);
+spectrumLayout = tiledlayout(spectrumFigure, numberOfRows, numberOfColumns, ...
+    'TileSpacing', 'compact', 'Padding', 'compact');
 
-legendLabels = arrayfun(@(channel) sprintf('Channel %d', channel), ...
-    channelLabels, 'UniformOutput', false);
-legend(legendLabels, 'Location', 'eastoutside');
+for channelIdx = 1:nChannels
+    spectrumAxes = nexttile(spectrumLayout);
+    plot(spectrumAxes, frequencyHz, powerDb(:, channelIdx), ...
+        'Color', [0.05 0.35 0.75], 'LineWidth', 1);
+    hold(spectrumAxes, 'on');
+    addLineFrequencyMarkers(spectrumAxes, lineHz, plotMaximumHz);
+    hold(spectrumAxes, 'off');
+    grid(spectrumAxes, 'on');
+    xlim(spectrumAxes, [0 plotMaximumHz]);
+    title(spectrumAxes, sprintf('Channel %d', channelLabels(channelIdx)));
+    xlabel(spectrumAxes, 'Frequency (Hz)');
+    ylabel(spectrumAxes, 'Power (dB/Hz)');
+end
+
+title(spectrumLayout, 'EMG power spectra');
+
+end
+
+
+%% Local function: add power-line harmonic markers
+
+function addLineFrequencyMarkers(ax, lineHz, maximumHz)
+
+if isempty(lineHz) || ~isscalar(lineHz) || lineHz <= 0
+    return;
+end
+
+for frequency = lineHz:lineHz:maximumHz
+    xline(ax, frequency, ':', 'Color', [0.55 0.55 0.55], ...
+        'HandleVisibility', 'off');
+end
 
 end
 
@@ -326,11 +380,18 @@ for listIdx = 1:numel(inputIdxList)
 
     if dev.cfg.HRES(inputIdx) == 0
         decoded = reshape(linearValues, dev.NumChan(inputIdx), nSamples);
+        blocks{listIdx} = dev.cfg.GainFactor * double(decoded);
     else
-        decoded = reshape(typecast(linearValues, 'int32'), ...
+        % The probe sends [highWord, lowWord], but MATLAB typecast on this
+        % little-endian system expects [lowWord, highWord].
+        wordPairs = reshape(linearValues, 2, []);
+        reorderedWords = reshape(flipud(wordPairs), 1, []);
+        decoded = reshape(typecast(reorderedWords, 'int32'), ...
             dev.NumChan(inputIdx), nSamples);
+
+        % HRES uses a conversion step four times smaller than 16-bit mode.
+        blocks{listIdx} = (dev.cfg.GainFactor / 4) * double(decoded);
     end
-    blocks{listIdx} = dev.cfg.GainFactor * double(decoded);
 end
 
 % Store all selected inputs in one channels-by-samples matrix

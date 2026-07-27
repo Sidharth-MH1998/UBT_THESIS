@@ -2,7 +2,7 @@
 % Put the channels-by-samples EMG matrix in emgData.
 % Welch's method is used to obtain a stable power spectral density (PSD).
 
-emgData = trimmedEMG;
+emgData = emgValues;
 samplingRate = 2000;
 
 channelsToAnalyse = [1]; % [] analyses all channels

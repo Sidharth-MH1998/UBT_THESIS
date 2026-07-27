@@ -1,7 +1,7 @@
 %% EMG frequency spectrum before and after filtering
 % The EMG matrix must be channels x samples.
 
-emgData = trimmedEMG;
+emgData = emgValues;
 samplingRate = 2000; % Set this to the true recording sampling rate.
 
 channelsToAnalyse = 1; % [] analyses all channels
