@@ -137,7 +137,7 @@ for j = 1:NITER
         if initialization == 0
             actind = sum(X,1).^2;
             [~, idx1(j)] = max(actind);
-            w = X(:, idx1(j)); % Initialize w
+            w = X(:, idx1(j)); % Initialize w with the time at max emg activity 
         else
             w = randn(size(X,1),1);
         end
@@ -354,6 +354,7 @@ if size(PulseT,1) > 0 && size(PulseT,2) == size(emg,2)  % Only continue if MUs w
         end
 
         % Save outputs
+        
         decomp_results.B = B;
         decomp_results.sil_all = sil_all;
         decomp_results.cov_all = CoV;

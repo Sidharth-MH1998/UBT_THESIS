@@ -2,10 +2,10 @@
 % -------------------------------------------------------------------------
 % Required in workspace:
 %   Calib_data
-%   recordedEMG or EMG
+%   recordedEMG : ONLINE DECOMPOSITION LOOKS FOR recordedEMG
 %   fs
 %   badchan
-
+%recordedEMG=trimmedEMG; 
 assert(exist('Calib_data', 'var') == 1, 'Calib_data not found in workspace.');
 if exist('recordedEMG', 'var') ~= 1 && exist('trimmedEMG', 'var') == 1
     recordedEMG = trimmedEMG;
@@ -18,12 +18,12 @@ if exist('badchan', 'var') ~= 1
 end
 
 cfg = struct();
-cfg.activeInputs = [1];
+cfg.activeInputs = [1 2];
 cfg.WiFi = 0;
-cfg.calibChannels = 1:64;
+cfg.calibChannels = 1:128;
 % Each 64-electrode Novecento probe streams 70 rows:
 % 64 electrode rows followed by 6 IMU/accessory rows.
-cfg.emgChannels = [1:64]  ;%[1:64 71:134];
+cfg.emgChannels =[1:64 71:134];
 cfg.windowBaseCols = 64;
 cfg.visibleWindowSec = 10;
 cfg.onlineDurationSec = inf;

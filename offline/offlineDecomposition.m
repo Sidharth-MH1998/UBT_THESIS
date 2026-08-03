@@ -1,5 +1,5 @@
 %parameters
-EMG=trimmedEMG;
+EMG=recordedEMG;
 fs = 2000;
 badchan = [];
 padLen = 200;
@@ -21,7 +21,11 @@ preproc_flag = 1;
 
 % 1. CALIBRATION (Run offline code once to get the filters)
 
-Calib_data = decompose3(EMG, fs, badchan, padLen, initialization, NITER, nbextchan, silthr, covfilter, covthr, ...
+results = decompose4(EMG, fs, badchan, padLen, initialization, NITER, nbextchan, silthr, covfilter, covthr, ...
     differentialmode, peeloff_flag, peeloffwin, duplicatesthresh, CoVDR, contrastfunc, refineMU, preproc_flag);
 
 
+signal = results.signal;
+parameters = results.parameters;
+
+save('decomposition_for_MUedit.mat','signal','parameters');

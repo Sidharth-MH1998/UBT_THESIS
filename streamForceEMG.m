@@ -64,14 +64,22 @@ end
 
 %% Setup Force streaming from Arduino
 serialObj = initializeArduinoStream(ard_port);
+serialCleanup = onCleanup(@() closeSerialObject(serialObj));
 
 %% Setup EMG streaming and plotting when enabled
 if EmgToggle
     emgCfg = makeNovecentoConfig(emgBlockDurationSec);
     novecentoDev = novecento_connect(emgCfg);
+    emgCleanup = onCleanup(@() closeEMGStream(novecentoDev, true));
     activeFs = novecentoDev.fsInput(emgCfg.activeInputs);
     if any(activeFs <= 0) || numel(unique(activeFs)) ~= 1
-        error('All active Novecento inputs must have one valid sampling rate.');
+        error(['Invalid Novecento input configuration. Active inputs: %s; ' ...
+            'detected channel counts: %s; sampling rates: %s; ' ...
+            'probe type codes: %s.'], ...
+            mat2str(emgCfg.activeInputs), ...
+            mat2str(novecentoDev.NumChan(emgCfg.activeInputs).'), ...
+            mat2str(activeFs.'), ...
+            mat2str(novecentoDev.Settings(emgCfg.activeInputs + 1)));
     end
     fs_emg = activeFs(1);
     emgSamplesPerBlock = round(fs_emg * emgCfg.blockDurationSec);
@@ -85,6 +93,7 @@ if EmgToggle
     [emgFig, ax_emg] = initializeLiveEMGFigure(numel(emgPreviewRows));
 else
     novecentoDev = [];
+    emgCleanup = [];
     emgData = [];
     currentEMGIndex = 0;
     emgFig = [];
@@ -116,10 +125,11 @@ while ishandle(fig)
     loopStartTime = tic;
     try
         % ----------- Force data streaming -----------
-        while serialObj.BytesAvailable > 0
+        while serialObj.NumBytesAvailable > 0
             % Expected Arduino line format:
             % timestamp,force1,force2,force3
-            fSample = fscanf(serialObj, '%f,%f,%f,%f');
+            serialLine = readline(serialObj);
+            fSample = sscanf(char(serialLine), '%f,%f,%f,%f');
 
             if numel(fSample) >= 4
                 nextForceIndex = currentForceIndex + 1;
@@ -395,6 +405,8 @@ if EmgToggle && ishandle(emgFig)
     close(emgFig);
 end
 
+clear emgCleanup serialCleanup;
+
 %% Local functions
 
 function [fig, ax_f, btnClose, btnZero, btnRecord, btnRecordTracking, ...
@@ -493,10 +505,16 @@ function [fig, ax_f, btnClose, btnZero, btnRecord, btnRecordTracking, ...
 end
 
 function serialObj = initializeArduinoStream(ard_port)
-    serialObj = serial(ard_port, 'BaudRate', 115200, 'Terminator', 'LF');
-    fopen(serialObj);
+    availablePorts = serialportlist("available");
+    if ~any(strcmpi(availablePorts, ard_port))
+        error('Arduino port %s is not available. Available ports: %s', ...
+            ard_port, strjoin(cellstr(availablePorts), ', '));
+    end
+
+    serialObj = serialport(ard_port, 115200, 'Timeout', 2);
+    configureTerminator(serialObj, "LF");
     pause(1);
-    flushinput(serialObj);
+    flush(serialObj, "input");
     disp(['Arduino force stream connected on ', ard_port]);
 end
 
@@ -606,9 +624,7 @@ end
 
 function closeSerialObject(serialObj)
     if ~isempty(serialObj) && isvalid(serialObj)
-        fclose(serialObj);
         delete(serialObj);
-        clear serialObj
         disp('Arduino force stream closed.');
     end
 end
