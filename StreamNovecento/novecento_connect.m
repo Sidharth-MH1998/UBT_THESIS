@@ -1,5 +1,9 @@
 function dev = novecento_connect(cfg)
 %NOVECENTO_CONNECT Open TCP connection and configure Novecento+ streaming.
+% Connect and prepare the hardware for reading
+% input : cfg containing the requested Novecento configuration
+%output : dev containing the connected device and all information required to read EMG
+
 
 ip = '169.254.1.10';
 tcpPort = 23456;
@@ -36,16 +40,16 @@ end
 
 dev = struct();
 dev.ip = ip;
-dev.tcpSocket = tcpSocket;
-dev.cfg = cfg;
-dev.Settings = settings;
+dev.tcpSocket = tcpSocket;  % live Novecento connection
+dev.cfg = cfg; % final configuration
+dev.Settings = settings;   % detected hardware/probe types 
 dev.ConfString = confString;
 dev.PacketSize1Block = packetSize;
 dev.NumChan = numChan;
-dev.Ptr_IN = ptrIn;
-dev.Size_IN = sizeIn;
-dev.fsInput = fsInput;
-
+dev.Ptr_IN = ptrIn;  % start position of each input
+dev.Size_IN = sizeIn; % data size of each input 
+dev.fsInput = fsInput;  % sampling rate per input
+ 
 end
 
 function cfg = prepare_input_config(cfg)

@@ -50,7 +50,7 @@ end
 session = getappdata_safe(fig, app);
 
 end
-
+%% validate config settings
 function [fs, samplesPerBlock] = validate_stream_settings(dev, cfg)
 
 if isempty(cfg.activeInputs) || isempty(cfg.emgChannels)
@@ -84,13 +84,10 @@ if isempty(previewRows)
 end
 
 end
-
+%creates the window used to display the live EMG.
 function [fig, ui] = build_plot_window()
 
-fig = figure( ...
-    'Color', 'w', ...
-    'Position', [80 60 1450 780], ...
-    'Name', 'Novecento Live EMG Plot');
+fig = figure('Color', 'w','Position', [80 60 1450 780],'Name', 'Novecento Live EMG');
 
 ui.axRaw = axes('Parent', fig, 'Position', [0.06 0.11 0.90 0.80]);
 title(ui.axRaw, 'Live EMG Preview');
@@ -107,9 +104,8 @@ ui.statusText = uicontrol(fig, 'Style', 'text', ...
 
 
 end
-
+% creates a structure for storing the current state of the EMG application
 function app = create_app_state(cfg, fs)
-
 app = struct();
 app.cfg = cfg;
 app.fs = fs;
@@ -121,7 +117,6 @@ app.recordStartSample = [];
 app.recordEndSample = [];
 app.recordedEMG = [];
 app.recordStateText = 'Idle';
-
 end
 
 function update_plot_window(fig, ui)

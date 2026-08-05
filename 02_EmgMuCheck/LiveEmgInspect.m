@@ -1,4 +1,4 @@
-% Stand-alone Novecento+ EMG acquisition script.
+%% Novecento+ EMG acquisition and quality check.
 % The recorded channels x samples matrix is stored in emgValues.
 % record the emg and find bad channels, baseline noise and inspect the frequency spectrum.
 

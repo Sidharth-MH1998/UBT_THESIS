@@ -1,27 +1,39 @@
-clc
-close all
-clear all
-
-% Force-only recording script for 3 load cells.
-% This keeps the same main-loop structure, calibration, zeroing,
-% exponential smoothing, target tracking, and saving behavior.
-
-%% Parameters
-ard_port = 'COM4';                 % Modify based on the system
-fs_force = 50;                     % Force sampling frequency (50 Hz)
-maxDuration = 10 * 60;             % Maximum recording time (10 minutes)
-EmgToggle=true;
-fs_emg = 2000;                     % EMG sampling frequency (Hz)
-emgPreviewRows = 1:8:128;          % Distributed rows shown; all 128 remain stored
-emgBlockDurationSec = 0.02;        % 20 ms Novecento blocks
-emgPlotUpdateRate = 5;             % EMG screen refresh rate (stored data stays at 2000 Hz)
-emgDisplayDecimation = 10;         % Show every 10th EMG sample (stored data is unchanged)
+% Stream, display, and record force and EMG signals.
+%
+% Reads three force channels from an Arduino and, when
+% EmgToggle is true, simultaneously reads HD-EMG from the Novecento+.
+% Force is sampled at 50 Hz and EMG is sampled at 2000 Hz by default.
+%
+% During recording, all force and EMG samples are stored. The EMG preview
+% displays only selected channels to keep the live plot responsive.
+%
+% When EMG streaming is enabled, the saved MAT file includes:
+%   recordedForce - Recorded force samples x 3 force channels.
+%   recordedEMG   - 128 EMG channels x recorded EMG samples.
+%   emgData       - Complete EMG circular buffer.
+%   fs_force      - Force sampling frequency.
+%   fs_emg        - EMG sampling frequency.
 
 
-numForceChan = 3;                  % Number of force channels
-displayTime = 15;                  % Visible plot time plus buffer
-bufferTime = 5;                    % Extra buffer time for target plotting
-plotUpdateRate = 10;               % Plot refresh rate (Hz); data is still recorded at 50 Hz
+%% User settings
+
+ard_port = 'COM4';
+fs_force = 50;
+maxDuration = 10 * 60; % Maximum data held in the circular buffers.10 minutes, expressed in seconds
+EmgToggle = true;
+fs_emg = 2000;
+emgActiveInputs = [1 2]; % Novecento inputs to enable
+emgChannels = [1:64 71:134]; % Keep 64 EMG rows from each active input
+emgPreviewRows = 1:8:128; % displayed rows 
+emgBlockDurationSec = 0.02; % Read EMG in 20-ms blocks
+emgPlotUpdateRate = 5; % Refresh the EMG preview 
+emgDisplayDecimation = 10; % Plot one of every ten EMG samples to reduce drawing work
+
+numForceChan = 3; % Number of force signals
+displayTime = 15; % Show the most recent 15 seconds
+bufferTime = 5; % Add five seconds of display space around the target force trajectory.
+plotUpdateRate = 10; % Refresh the force plot 
+% With 50-Hz force and a 10-Hz plot, redraw after every five new samples.
 plotUpdateInterval = round(fs_force / plotUpdateRate);
 
 % Preallocate size for 10 minutes worth of data
@@ -32,22 +44,21 @@ currentForceIndex = 0;
 % Initialize default calibration values
 defaultCalibrationFactors = [10, 10, 10];
 defaultZeroValues = [0, 0, 0];
-defaultReverseStates = [false, false, false];
+defaultReverseStates = [false, false, false]; % No reverse by default
 
-% Select a calibration file. Press Cancel to use the default values.
+%% choosing calibration file 
+% Select a calibration file using uigetfile . Press Cancel to use the default values.
 forceScriptDir = fileparts(mfilename('fullpath'));
-addpath(fullfile(forceScriptDir, 'test_stream'));
-[calibrationFileName, calibrationFolder] = uigetfile( ...
-    fullfile(forceScriptDir, '*.mat'), ...
-    'Select calibration file, or press Cancel to use defaults');
+[calibrationFileName, calibrationFolder] = uigetfile(fullfile(forceScriptDir, '*.mat'),'Select calibration file, or press Cancel to use defaults');
 
 if ~isequal(calibrationFileName, 0)
     calibrationFile = fullfile(calibrationFolder, calibrationFileName);
-    calibrationData = load(calibrationFile, ...
-        'calibrationFactors', 'zeroValues', 'reverseStates');
+    calibrationData = load(calibrationFile, 'calibrationFactors', 'zeroValues', 'reverseStates');
+
     calibrationFactors = calibrationData.calibrationFactors;
     zeroValues = calibrationData.zeroValues;
     reverseStates = calibrationData.reverseStates;
+
     disp(['Loaded calibration: ', calibrationFile]);
 else
     calibrationFactors = defaultCalibrationFactors;
@@ -56,21 +67,23 @@ else
     disp('No calibration file selected. Using default calibration values.');
 end
 
-% Initialize figure and axes
+%% Initialize figure and axes
 [fig, ax_f, btnClose, btnZero, btnRecord, btnRecordTracking, ...
     forceChanDropdown, traceTypeDropdown, tWaitBox, tSlopeBox, tPlateauBox, ...
     forceTargetBox, forceSignLabel, forceSignCheckbox, participantIDBox, ...
     trialBox, sessionBox] = setupForceOnlyFigure();
 
 %% Setup Force streaming from Arduino
-serialObj = initializeArduinoStream(ard_port);
+serialObj = initializeArduinoStream(ard_port); % MATLAB’s communication link to the Arduino
 serialCleanup = onCleanup(@() closeSerialObject(serialObj));
 
 %% Setup EMG streaming and plotting when enabled
 if EmgToggle
-    emgCfg = makeNovecentoConfig(emgBlockDurationSec);
+    emgCfg = makeNovecentoConfig( ...
+        emgBlockDurationSec,emgActiveInputs,emgChannels);
     novecentoDev = novecento_connect(emgCfg);
     emgCleanup = onCleanup(@() closeEMGStream(novecentoDev, true));
+    %sanity check
     activeFs = novecentoDev.fsInput(emgCfg.activeInputs);
     if any(activeFs <= 0) || numel(unique(activeFs)) ~= 1
         error(['Invalid Novecento input configuration. Active inputs: %s; ' ...
@@ -87,8 +100,7 @@ if EmgToggle
     emgData = zeros(numel(emgCfg.emgChannels), maxEMGSamples);
     currentEMGIndex = 0;
     emgPlotCounter = 0;
-    emgPlotInterval = max(1, round(1 / ...
-        (emgCfg.blockDurationSec * emgPlotUpdateRate)));
+    emgPlotInterval = max(1, round(1 /(emgCfg.blockDurationSec * emgPlotUpdateRate)));
 
     [emgFig, ax_emg] = initializeLiveEMGFigure(numel(emgPreviewRows));
 else
@@ -126,8 +138,7 @@ while ishandle(fig)
     try
         % ----------- Force data streaming -----------
         while serialObj.NumBytesAvailable > 0
-            % Expected Arduino line format:
-            % timestamp,force1,force2,force3
+            % Expected Arduino line format:timestamp,force1,force2,force3
             serialLine = readline(serialObj);
             fSample = sscanf(char(serialLine), '%f,%f,%f,%f');
 
@@ -137,8 +148,8 @@ while ishandle(fig)
                     nextForceIndex = 1;
                 end
 
-                tStamps(nextForceIndex) = fSample(1);
-                forceSample = fSample(2:4);
+                tStamps(nextForceIndex) = fSample(1); % sample number 
+                forceSample = fSample(2:4); % three force channels
 
                 % Step 1: Apply channel reverse states
                 for i = 1:numForceChan
@@ -161,14 +172,13 @@ while ishandle(fig)
                 end
 
                 % Step 2: Apply zero values and calibration factors
-                calibratedForce = (forceSample(1:numForceChan)' - zeroValues(1:numForceChan)) ...
-                    ./ calibrationFactors(1:numForceChan) * 100;
+                calibratedForce = (forceSample(1:numForceChan)' - zeroValues(1:numForceChan))./ calibrationFactors(1:numForceChan) * 100;
 
                 % Step 3: Store calibrated force data
                 currentForceIndex = nextForceIndex;
                 forceData(currentForceIndex, :) = calibratedForce;
 
-                % Step 4: Apply exponential moving average for smoothing
+                % Step 4: Apply exponential moving average filter  for smoothing
                 filteredForce = calibratedForce;
                 alpha = 0.3;
                 if currentForceIndex > 1
@@ -189,8 +199,7 @@ while ishandle(fig)
 
         % ----------- EMG data streaming and plotting -----------
         if EmgToggle
-            rawEMG = novecento_read_emg_block(novecentoDev, ...
-                emgCfg.activeInputs, emgSamplesPerBlock);
+            rawEMG = novecento_read_emg_block(novecentoDev,emgCfg.activeInputs, emgSamplesPerBlock);
             emgSample = double(rawEMG(emgCfg.emgChannels, :));
 
             nEMGSamples = size(emgSample, 2);
@@ -207,8 +216,7 @@ while ishandle(fig)
 
             emgPlotCounter = emgPlotCounter + 1;
             if ishandle(emgFig) && mod(emgPlotCounter, emgPlotInterval) == 0
-                updateLiveEMGPlot(ax_emg, emgData, currentEMGIndex, ...
-                    fs_emg, displayTime, emgPreviewRows, ...
+                updateLiveEMGPlot(ax_emg, emgData, currentEMGIndex,fs_emg, displayTime, emgPreviewRows, ...
                     emgCfg.emgChannels, emgDisplayDecimation);
             end
         end
@@ -427,7 +435,7 @@ function [fig, ax_f, btnClose, btnZero, btnRecord, btnRecordTracking, ...
     title(ax_f, 'Live Force Data');
 
     btnClose = uicontrol(fig, 'Style', 'togglebutton', 'String', 'Close', ...
-        'Units', 'normalized', 'Position', [0.88, 0.04, 0.08, 0.05]);
+        'BackgroundColor',[0.85 0.25 0.25], 'Units', 'normalized', 'Position', [0.88, 0.04, 0.08, 0.05]);
 
     btnZero = uicontrol(fig, 'Style', 'togglebutton', 'String', 'Zero', ...
         'Units', 'normalized', 'Position', [0.78, 0.04, 0.08, 0.05]);
@@ -503,7 +511,7 @@ function [fig, ax_f, btnClose, btnZero, btnRecord, btnRecordTracking, ...
         'Value', 0, 'Units', 'normalized', 'Position', [0.39, 0.105, 0.10, 0.035], ...
         'BackgroundColor', fig.Color);
 end
-
+% connect to arduino
 function serialObj = initializeArduinoStream(ard_port)
     availablePorts = serialportlist("available");
     if ~any(strcmpi(availablePorts, ard_port))
@@ -517,7 +525,7 @@ function serialObj = initializeArduinoStream(ard_port)
     flush(serialObj, "input");
     disp(['Arduino force stream connected on ', ard_port]);
 end
-
+% initialize force plot
 function forceLines = initializeForcePlot(ax_f, numForceChan)
     colors = lines(numForceChan);
     forceLines = gobjects(numForceChan, 1);
@@ -528,11 +536,11 @@ function forceLines = initializeForcePlot(ax_f, numForceChan)
 
     legend(ax_f, {'Load cell 1', 'Load cell 2', 'Load cell 3'}, 'Location', 'northwest');
 end
-
+% update the force plot
 function updateForcePlot(ax_f, forceLines, forceData, fs_force, numForceChan, ...
     displayTime, bufferTime, forceTarget, forceMin, currentForceIndex)
 
-    if currentForceIndex < 1
+    if currentForceIndex < 1 % first sample
         return
     end
 
@@ -630,7 +638,7 @@ function closeSerialObject(serialObj)
 end
 
 function [emgFig, ax_emg] = initializeLiveEMGFigure(numPreviewChannels)
-    emgFig = figure('Name', 'Live EMG', ...
+    emgFig = figure('Name', 'Live EMG from Novecento ', ...
         'NumberTitle', 'off', ...
         'Color', 'w', ...
         'Position', [140, 100, 1200, 650]);
@@ -665,8 +673,7 @@ function updateLiveEMGPlot(ax_emg, emgData, currentEMGIndex, ...
     displayFs = fs_emg / displayDecimation;
     firstDisplaySample = (displayIndices(1) - 1) / displayDecimation + 1;
 
-    novecento_plot_stacked(ax_emg, visibleEMG, labels, displayFs, ...
-        firstDisplaySample, displayTime);
+    novecento_plot_stacked(ax_emg, visibleEMG, labels, displayFs,firstDisplaySample, displayTime);
 end
 
 function closeEMGStream(novecentoDev, EmgToggle)
@@ -679,12 +686,12 @@ function closeEMGStream(novecentoDev, EmgToggle)
     catch
     end
 end
-
-function cfg = makeNovecentoConfig(blockDurationSec)
+%% Novecento configuration 
+function cfg = makeNovecentoConfig(blockDurationSec,activeInputs,emgChannels)
     cfg = struct();
     cfg.socketTimeoutSec = 100;
-    cfg.activeInputs = [1 2];
-    cfg.emgChannels = [1:64 71:134];
+    cfg.activeInputs = activeInputs;
+    cfg.emgChannels = emgChannels;
     cfg.blockDurationSec = blockDurationSec;
     cfg.GainFactor = 0.2861;
     cfg.FSelAux = 2;

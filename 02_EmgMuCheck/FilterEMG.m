@@ -1,5 +1,5 @@
 %% Preprocess and visualise recorded EMG channels
-% Uses the existing adaptiveNotchFilter and bandpassingals implementations.
+% Uses the Muedit filters .
 % The EMG matrix must be channels x samples.
 
 emgData = trimmedEMG;

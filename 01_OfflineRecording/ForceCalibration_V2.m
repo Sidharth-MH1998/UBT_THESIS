@@ -1,19 +1,13 @@
 clc;
 close all;
 clear all;
-
-% Make the existing force helper functions available.
-forceScriptDir = fileparts(mfilename('fullpath'));
-addpath(fullfile(forceScriptDir, 'lib'));
-
-%% Parameters
-
+%% user settings 
 % IMPORTANT: FILL SUBJECT ID AT THE BEGINNING
-participantID = "SH"; % used to load existing calibration file
+% participantID = "SH"; % used to load existing calibration file
 
 ard_port = 'COM4'; % Modify depending on the PC or laptop used
-fs_force = 50;  % Force sampling frequency
-numForceChan = 3;  % Set to 1, 2, or 3 based on the number of force channels
+fs_force = 50;  % Force fs
+numForceChan = 3;  % number of force channels
 displayTime = 10;  % Display 10 seconds of data with extra 5 seconds of empty space
 plotUpdateRate = 10; % Refresh plot at 10 Hz; data remains sampled/stored at 50 Hz
 plotUpdateInterval = max(1, round(fs_force / plotUpdateRate));
@@ -21,10 +15,10 @@ calibrationTime = 15;  % Time for calibration recording in seconds
 zeroTime = 3;  % Time for zero value calculation in seconds
 maxDuration = 10 * 60; % Maximum recording time (10 minutes in seconds)
 
+%% Load the data
 % Select an existing calibration, or press Cancel to create a new one.
-[fileName, folderName] = uigetfile( ...
-    fullfile(forceScriptDir, '*.mat'), ...
-    'Select calibration file, or press Cancel for new calibration');
+forceScriptDir = fileparts(mfilename('fullpath'));
+[fileName, folderName] = uigetfile(fullfile(forceScriptDir, '*.mat'),'Select calibration file, or press Cancel for new calibration');
 
 if isequal(fileName, 0)
     calibrationFile = '';
@@ -34,23 +28,15 @@ if isequal(fileName, 0)
     disp('Starting a new calibration with default values.');
 else
     calibrationFile = fullfile(folderName, fileName);
-
-    calib = load(calibrationFile, ...
-        'calibrationFactors', ...
-        'zeroValues', ...
-        'reverseStates');
-
+    calib = load(calibrationFile,'calibrationFactors','zeroValues','reverseStates');
     calibrationFactors = calib.calibrationFactors;
     zeroValues = calib.zeroValues;
     reverseStates = calib.reverseStates;
     disp(['Loaded calibration: ', calibrationFile]);
 end
 
-% Preallocate size for 10 minutes worth of data
-maxForceSamples = fs_force * maxDuration;
-
-% Initialize data storage
-forceData = zeros(maxForceSamples, numForceChan);
+maxForceSamples = fs_force * maxDuration; % Preallocate size for 10 minutes worth of data
+forceData = zeros(maxForceSamples, numForceChan); % Initialize data storage
 
 currentForceIndex = 0;
 
@@ -60,8 +46,9 @@ currentForceIndex = 0;
 
 % Setup force streaming
 serialObj = initializeArduinoStream(ard_port);
+serialCleanup = onCleanup(@() closeSerialObject(serialObj));
 
-% Keep the arrays preallocated to avoid resizing them during acquisition.
+% initiialise arrays to avoid resizing them during acquisition.
 forceData = zeros(maxForceSamples, numForceChan);
 rawForce = zeros(maxForceSamples, numForceChan);
 
@@ -92,9 +79,9 @@ tempZeroValues = zeroValues;
 while ishandle(fig)
     try
         % Force data streaming and processing
-        if serialObj.BytesAvailable > 0
+        if serialObj.NumBytesAvailable > 0
             % Read force data
-            serialLine = fgetl(serialObj);
+            serialLine = char(readline(serialObj));
             fSample = sscanf(serialLine, '%f,%f,%f,%f');
 
             % Ignore startup messages, partial lines, or malformed packets.
@@ -117,11 +104,10 @@ while ishandle(fig)
            
             % Step 3: Store the raw and calibrated force data in rawForce and forceData respectively
             currentForceIndex = currentForceIndex + 1;
-            rawForce(currentForceIndex, :) = forceSample; % Store raw force data
-
             if currentForceIndex > maxForceSamples
                 currentForceIndex = 1; % Wrap around if exceeding preallocated size
-            end  
+            end
+            rawForce(currentForceIndex, :) = forceSample; % Store raw force data
             forceData(currentForceIndex, :) = calibratedForce; % Store calibrated data
 
             % Step 4a: Detect and replace spikes
@@ -135,7 +121,7 @@ while ishandle(fig)
             end
 
             % Step 4b: Apply exponential moving average for smoothing
-            alpha = 0.6;
+            alpha = 0.3;
             if currentForceIndex > 1
                 filteredForce = alpha * filteredForce + (1 - alpha) * forceData(currentForceIndex - 1, :);
             end
@@ -230,15 +216,10 @@ while ishandle(fig)
 
         % Check close button
         if btnClose.Value
-           % Close the serial object
-            if ~isempty(serialObj) && isvalid(serialObj)
-                fclose(serialObj);
-                delete(serialObj);
-                clear serialObj
-            end
-        
-           break;
-       end
+            % Close the serial object
+            closeSerialObject(serialObj);
+            break;
+        end
 
     catch ME
         disp(['Error occurred: ', ME.message]);
@@ -247,6 +228,10 @@ while ishandle(fig)
 
     drawnow limitrate;
 end
+
+% Also close the serial port if the figure itself was closed.
+closeSerialObject(serialObj);
+clear serialCleanup;
 
 
 %% Helper Functions
@@ -317,4 +302,14 @@ function [forceLines] = initializeForcePlot(ax, numForceChannels)
     legendLabels = arrayfun(@(i) sprintf('Load cell %d', i), ...
         1:numForceChannels, 'UniformOutput', false);
     legend(ax, forceLines, legendLabels, 'Location', 'northwest');
+end
+
+function closeSerialObject(serialObj)
+    if ~isempty(serialObj) && isvalid(serialObj)
+        try
+            flush(serialObj);
+        catch
+        end
+        delete(serialObj);
+    end
 end

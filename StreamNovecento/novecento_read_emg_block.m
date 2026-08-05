@@ -1,8 +1,8 @@
 function emg = novecento_read_emg_block(dev, inputIdxList, samplesPerBlock)
-%NOVECENTO_READ_EMG_BLOCK Read and decode one EMG block.
+%NOVECENTO_READ_EMG_BLOCK Read and decode EMG block.
 %
-% The returned matrix is channels x samples. If multiple inputs are active,
-% their channels are stacked vertically in the same order as inputIdxList.
+% output : emg (channels x samples) .
+% multiple channels are stacked vertically in the same order as inputIdxList.
 
 fsActive = dev.fsInput(inputIdxList(1));
 nBaseCols = samplesPerBlock * 500 / fsActive;
