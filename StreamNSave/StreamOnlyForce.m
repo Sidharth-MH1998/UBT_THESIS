@@ -195,7 +195,7 @@ while ishandle(fig)
             recordingTracking = true;
             traceStartTime = currentTime;
 
-            forceTraceLine = animatedline(ax_f, 'Color', 'k', 'LineWidth', 1, 'LineStyle', '-');
+            forceTraceLine = animatedline(ax_f, 'Color', 'k', 'LineWidth', 1, 'LineStyle', '-', 'DisplayName','reference');
             lastPlottedIdx = 1;
         end
 
@@ -411,7 +411,7 @@ function forceLines = initializeForcePlot(ax_f, numForceChan)
         forceLines(i) = animatedline(ax_f, 'Color', colors(i, :), 'LineWidth', 1.5);
     end
 
-    legend(ax_f, {'Load cell 1', 'Load cell 2', 'Load cell 3'}, 'Location', 'northwest');
+    legend(ax_f, {'Thumb', 'Index finger', 'Middle finger'}, 'Location', 'northwest');
 end
 
 function updateForcePlot(ax_f, forceLines, forceData, fs_force, numForceChan, ...

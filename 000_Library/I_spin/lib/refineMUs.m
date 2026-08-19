@@ -19,7 +19,16 @@ function [PulseT, Distime] = refineMUs(EMG, EMGmask, PulseTold, Distimeold, fsam
 
 f = waitbar(0,'Refining MU pulse trains - Signal extension');
 
+EMGmask = EMGmask(:);
+if numel(EMGmask) ~= size(EMG,1)
+    error('EMGmask length must match the number of EMG channels.');
+end
+
+% Standard convention: 0 = good channel, 1 = bad channel.
 EMG(EMGmask == 1,:) = [];
+if isempty(EMG)
+    error('EMGmask removed every EMG channel.');
+end
 nbextchan = 1500;
 exFactor = round(nbextchan/size(EMG,1));
 eSIG = extend(EMG,exFactor);

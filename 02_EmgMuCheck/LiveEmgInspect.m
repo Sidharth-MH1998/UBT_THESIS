@@ -4,11 +4,11 @@
 
 %% 1. EMG quality-check settings
 
-cfg.activeInputs = [1 2];             % Novecento inputs used for recording.
-cfg.emgChannels = [1:64 71:134];      % Channels retained from the stacked inputs.
-cfg.previewChannels = 1:8:128;         % Retained-channel indices shown in the plot.
+cfg.activeInputs = 1 ;% [1 2];             % Novecento inputs used for recording.
+cfg.emgChannels = 1:64 ;% [1:64 71:134];      % Channels retained from the stacked inputs.
+cfg.previewChannels = 1:4:64;         % Retained-channel indices shown in the plot.
 cfg.blockDurationSec = 1;             % Amount of data read on each loop, in seconds.
-cfg.visibleWindowSec = 15;            % Duration shown in the moving plot, in seconds.
+cfg.visibleWindowSec = 1;            % Duration shown in the moving plot, in seconds.
 cfg.recordDurationSec = 60;           % USER SETTING: total recording time in seconds.
 cfg.spectrumMaximumHz = 700;          % Highest frequency displayed in the PSD plots.
 cfg.lineFrequencyHz = 50;             % Power-line frequency used for harmonic markers.

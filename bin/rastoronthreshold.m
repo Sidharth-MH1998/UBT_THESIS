@@ -74,7 +74,7 @@ for row = 1:n_MUs
 end
 
 %% --- Plot force after raster, so it appears in front ---
-plot(t_force, force_scaled, 'k', 'LineWidth', 2.0);
+%plot(t_force, force_scaled, 'k', 'LineWidth', 2.0);
 
 %% --- Add number of spikes on right side ---
 for row = 1:n_MUs

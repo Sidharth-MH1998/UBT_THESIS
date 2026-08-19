@@ -3,7 +3,7 @@ EMG=recordedEMG;
 fs = 2000;
 badchan = [];
 padLen = 200;
-initialization = 1;
+initialization = 0;
 NITER = 50;
 nbextchan =1024;        
 silthr = 0.9;
@@ -28,4 +28,5 @@ results = decompose4(EMG, fs, badchan, padLen, initialization, NITER, nbextchan,
 signal = results.signal;
 parameters = results.parameters;
 
-save('decomposition_for_MUedit.mat','signal','parameters');
+save('decompose4.mat','signal','parameters', "results","recordedForce");
+

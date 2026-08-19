@@ -127,15 +127,14 @@ for row = 1:n_MUs
 
     mu = mu_order(row);
 
-    mu_labels{row} = sprintf('MU %d  RT %.1f', ...
-        mu, rec_thresh(mu));
+    mu_labels{row} = sprintf('MU %d',        mu);
 
 end
 
 yticklabels(mu_labels);
 
 xlabel('Time (s)');
-ylabel('Motor Unit  Recruitment Threshold');
+ylabel('Motor Units');
 title('Raster Plot ');
 
 xlim([t_start, t_end + 0.15*(t_end - t_start)]);
@@ -191,8 +190,7 @@ for row = 1:n_MUs
     plot(t_fr(fr_mask), ifr(fr_mask), ...
         'Color', colors(mu,:), ...
         'LineWidth', 1.5, ...
-        'DisplayName', sprintf('MU %d  (%d spikes)', ...
-        mu, n_spikes(mu)));
+        'DisplayName', sprintf('MU %d ', mu));
 
 end
 

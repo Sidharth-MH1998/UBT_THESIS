@@ -47,7 +47,8 @@ function decomp_results = decompose4(emg, fs, badchan, padLen, initialization, N
 %       MU_locs       - Channel with maximum peak-to-peak amplitude per MU.
 %       D, E          - Eigenvalue and eigenvector matrices from PCA.
 %       whitened_mat  - Whitening matrix.
-%       MUFilters     - Separation filters retained after quality control.
+%       MUFilters     - Original filters retained after SIL/CoV control.
+%       RefinedMUFilters - Rebuilt filters aligned with the final MUs.
 %       signal        - MUedit-compatible signal structure.
 %       parameters    - Parameters used for this decomposition.
 
@@ -71,23 +72,22 @@ decomp_results.D = [];
 decomp_results.E = [];
 decomp_results.whitened_mat = [];
 decomp_results.MUFilters = [];
+decomp_results.RefinedMUFilters = [];
 decomp_results.signal = struct;
 decomp_results.parameters = struct;
 
 
 %% Step 1: Preprocessing
 
+% Preserve the truly raw recording for MUedit and online filter rebuilding.
+originalEMG = emg;
+nChannelsOriginal = size(originalEMG,1);
+nSamplesOriginal = size(originalEMG,2);
+
 if preproc_flag
     emg = adaptiveNotchFilter(emg,fs);
     emg = bandpassingals(emg,fs,1);
 end
-
-% Preserve all channels and the original sample length for MUedit.
-% Bad channels are retained here and excluded through signal.EMGmask.
-originalEMG = emg;
-
-nChannelsOriginal = size(originalEMG,1);
-nSamplesOriginal = size(originalEMG,2);
 
 nChannels = size(emg,1);
 
@@ -264,7 +264,9 @@ if refineMU == 1
     % Remove outliers generating irrelevant discharge rates before manual edition (1st time)
     distimenew = remoutliers(PulseT,distimenew,CoVDR,fs);
 
-    refinementMask = ones(1,size(emg,1));
+    % emg already contains only good channels. refineMUs uses the standard
+    % mask convention 0 = keep and 1 = remove.
+    refinementMask = zeros(size(emg,1),1);
 
     [Pulsetrain,distimenew] = refineMUs(emg,refinementMask,PulseT,distimenew,fs); % reapply filter on entire emg
      % Remove outliers generating irrelevant discharge rates before manual edition (2nd time)
@@ -340,6 +342,31 @@ if padLen > 0 % if there was padding, we remove it here
     fprintf('Signal returned to %d samples.\n',size(emg,2));
 end
 
+%% Step 11b: Rebuild filters for the final motor units
+
+% Rebuild from the unpadded raw calibration EMG so the saved filters match
+% live raw EMG. Final discharge times already reflect duplicate removal,
+% refinement, minimum-spike control, and padding removal. This uses the
+% same helper employed by MUedit when preparing filters for online use.
+finalEMGmask = zeros(nChannelsOriginal,1);
+finalEMGmask(badchan) = 1;
+
+RefinedMUFilters = getMUfilters( ...
+    originalEMG,finalEMGmask,Dischargetimes);
+
+% getMUfilters uses MUedit's fixed target of 1000 extended channels.
+filterExtensionFactor = round(1000/sum(finalEMGmask == 0));
+
+for mu = 1:nMUs
+    if ~all(isfinite(RefinedMUFilters(:,mu))) || ...
+            norm(RefinedMUFilters(:,mu)) == 0
+        error('The rebuilt filter for final MU %d is invalid.',mu);
+    end
+end
+
+fprintf('Rebuilt final MU filter matrix: %d x %d.\n', ...
+    size(RefinedMUFilters,1),size(RefinedMUFilters,2));
+
 
 %% Step 12: Compute average MUAP waveforms
 % peeloffwin = 0.025; % duration of the window for detecting the action potentials from the EMG signal
@@ -379,6 +406,7 @@ chan_max = zeros(nMUs,1);% channel with maximum p2p
 for mu = 1:nMUs
     p2ps(:,mu) = peak2peak(MUAPs{mu},2); % get peak to peak values
     [~,chan_max(mu)] = max(p2ps(:,mu));  % Get MU electrode location
+end
 
 %% Step 15: Restore bad-channel positions in MUAP results
 
@@ -409,7 +437,10 @@ signal = struct;
 signal.data = originalEMG; %channels x samples
 signal.fsamp = fs;
 signal.ngrid = 1;
+signal.emgtype = 1; % 1 = surface EMG, 2 = intramuscular EMG
 signal.Pulsetrain = {Pulsetrain}; % motor units x samples
+signal.MUFilters = MUFilters; % original filters before final MU cleanup
+signal.RefinedMUFilters = RefinedMUFilters; % one per final MU
 
 % Cells indexed as {grid,motorUnit}
 signal.Dischargetimes = cell(1,nMUs);
@@ -449,6 +480,7 @@ signal.path = signal.target;
 signal.auxiliary = signal.target;
 signal.auxiliaryname = {'EMG amplitude'};
 
+
 %% Step 20: Record decomposition parameters for MUedit
 
 parameters = struct;
@@ -469,6 +501,7 @@ parameters.refineMU = refineMU;
 parameters.preproc = preproc_flag;
 parameters.padLen = padLen;
 parameters.badchan = badchan;
+parameters.filterExtensionFactor = filterExtensionFactor;
 % Standard MUedit fields
 parameters.nwindows = 1;
 parameters.thresholdtarget = 0.8;
@@ -484,6 +517,23 @@ end
 
 if signal.ngrid ~= numel(signal.EMGmask)
     error('signal.ngrid does not match signal.EMGmask.');
+end
+
+if signal.ngrid ~= numel(signal.emgtype)
+    error('signal.ngrid does not match signal.emgtype.');
+end
+
+if size(signal.RefinedMUFilters,2) ~= ...
+        size(signal.Pulsetrain{1},1)
+    error(['signal.RefinedMUFilters does not match the final ' ...
+        'motor-unit count.']);
+end
+
+expectedFilterRows = sum(signal.EMGmask{1} == 0)* ...
+    parameters.filterExtensionFactor;
+if size(signal.MUFilters,1) ~= expectedFilterRows || ...
+        size(signal.RefinedMUFilters,1) ~= expectedFilterRows
+    error('Saved MU filters do not match the extended channel count.');
 end
 
 if size(signal.data,2) ~= ...
@@ -573,10 +623,10 @@ decomp_results.D = D;
 decomp_results.E = E;
 decomp_results.whitened_mat = w_mat;
 decomp_results.MUFilters = MUFilters;
+decomp_results.RefinedMUFilters = RefinedMUFilters;
 
 % MUedit-compatible outputs
 decomp_results.signal = signal;
 decomp_results.parameters = parameters;
 
 end
-

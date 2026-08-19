@@ -1,23 +1,26 @@
 %% =========================================================================
-% ULTIMATE RASTER PLOT FOR PSEUDO-ONLINE / OFFLINE RESULTS
+% RASTER PLOT FOR MUEDIT SIGNAL/PARAMETERS RESULTS
 %
 % This script plots the selected time interval.
 % Leave plot_start_sec and plot_stop_sec empty ([]) to plot the full
 % available recording.
 %
-% It can read spikes from:
-%   1. Dischargetimes_online  - cell array, one cell per MU, sample indices
-%   2. Distime                - samples x MUs logical spike matrix
-%   3. Calib_data.spike_train - samples x MUs logical spike matrix
+% Required in the workspace:
+%   signal      - MUedit signal structure containing discharge times
+%   parameters  - decomposition parameter structure
 %
-% Optional force overlay:
-%   recordedForce(:,2) is used as the force signal, matching the older
-%   raster plot scripts in this folder.
+% Optional overlay:
+%   recordedForce(:,2) is plotted when plot_force_overlay is enabled.
 % =========================================================================
 
 %% USER SETTINGS
-fs = 2000;                 % EMG sampling frequency in Hz
-fs_force = 50;             % Force sampling frequency in Hz
+assert(exist('signal','var') == 1, ...
+    'signal is not loaded in the workspace.');
+assert(exist('parameters','var') == 1, ...
+    'parameters is not loaded in the workspace.');
+
+fs = signal.fsamp;         % Sampling frequency saved with the EMG
+fs_force = 50;             % recordedForce sampling frequency in Hz
 
 plot_force_overlay = 0;    % 1 = plot force on raster, 0 = no force
 
@@ -28,7 +31,8 @@ plot_firing_rate = 0;      % 1 = add firing-rate subplot, 0 = raster only
 fr_ylim = [0 60];          % Firing-rate y-axis limits in Hz
 
 %% GET SPIKES
-[spike_times_all, source_name, n_samples] = get_spike_times_from_workspace(fs);
+[spike_times_all, source_name, n_samples] = ...
+    get_spike_times_from_signal(signal);
 n_MUs = numel(spike_times_all);
 
 if n_MUs == 0
@@ -79,16 +83,18 @@ force_signal = [];
 force_available = false;
 
 if plot_force_overlay
-    if exist('recordedForce', 'var') ~= 1
-        warning('recordedForce was not found. Plotting without force overlay.')
+    if exist('recordedForce','var') ~= 1 || isempty(recordedForce)
+        warning(['recordedForce was not found. Plotting without a ' ...
+            'force overlay.'])
         plot_force_overlay = false;
-    elseif size(recordedForce, 2) < 2
-        warning('recordedForce does not have column 2. Plotting without force overlay.')
+    elseif size(recordedForce,2) < 2
+        warning(['recordedForce does not contain column 2. Plotting ' ...
+            'without a force overlay.'])
         plot_force_overlay = false;
     else
-        force_signal = recordedForce(:, 2);
+        force_signal = recordedForce(:,2);
         force_signal = force_signal(:).';
-        force_time = (0:numel(force_signal)-1) / fs_force;
+        force_time = (0:numel(force_signal)-1)/fs_force;
 
         keep_force = force_time >= plot_start_sec & force_time <= plot_stop_sec;
         force_time = force_time(keep_force);
@@ -122,7 +128,7 @@ end
 
 plot_raster_panel(ax_raster, spike_times, mu_order, n_spikes, colors, ...
     plot_start_sec, plot_stop_sec, plot_force_overlay, ...
-    force_time, force_signal, source_name);
+    force_time, force_signal);
 
 if plot_firing_rate
     ax_fr = subplot(2, 1, 2);
@@ -147,82 +153,41 @@ disp('=== Raster plot summary ===')
 disp(summary_table)
 
 %% LOCAL FUNCTIONS
-function [spike_times, source_name, n_samples] = get_spike_times_from_workspace(fs)
-% Choose the first available spike source in the current workspace.
+function [spike_times,source_name,n_samples] = ...
+        get_spike_times_from_signal(signal)
 
-if evalin('base', 'exist(''Dischargetimes_online'', ''var'') == 1')
-    discharges = evalin('base', 'Dischargetimes_online');
-    spike_times = cell(1, numel(discharges));
-
-    for mu = 1:numel(discharges)
-        samples = discharges{mu};
-        samples = samples(:).';
-        spike_times{mu} = samples / fs;
+requiredFields = {'data','fsamp','Dischargetimes'};
+for fieldIdx = 1:numel(requiredFields)
+    if ~isfield(signal,requiredFields{fieldIdx})
+        error('signal.%s is missing.',requiredFields{fieldIdx});
     end
-
-    source_name = 'Dischargetimes_online';
-    n_samples = get_recording_length_from_workspace(discharges);
-    return
 end
 
-if evalin('base', 'exist(''Distime'', ''var'') == 1')
-    spike_matrix = evalin('base', 'Distime');
-    [n_samples, n_MUs] = size(spike_matrix);
-    spike_times = spike_matrix_to_times(spike_matrix, fs, n_MUs);
-    source_name = 'Distime';
-    return
+if ~iscell(signal.Dischargetimes) || isempty(signal.Dischargetimes)
+    error('signal.Dischargetimes must be a non-empty cell array.');
+end
+if ~isscalar(signal.fsamp) || ~isfinite(signal.fsamp) || ...
+        signal.fsamp <= 0
+    error('signal.fsamp must be a positive sampling frequency.');
 end
 
-if evalin('base', 'exist(''Calib_data'', ''var'') == 1 && isfield(Calib_data, ''spike_train'')')
-    spike_matrix = evalin('base', 'Calib_data.spike_train');
-    [n_samples, n_MUs] = size(spike_matrix);
-    spike_times = spike_matrix_to_times(spike_matrix, fs, n_MUs);
-    source_name = 'Calib_data.spike_train';
-    return
-end
+n_samples = size(signal.data,2);
+discharges = signal.Dischargetimes(1,:);
+spike_times = cell(1,numel(discharges));
 
-error(['No spike source found. Run pseudo-online decomposition first, ', ...
-       'or load Calib_data.spike_train.'])
-end
-
-function n_samples = get_recording_length_from_workspace(discharges)
-if evalin('base', 'exist(''Pulsetrain_online'', ''var'') == 1')
-    n_samples = evalin('base', 'size(Pulsetrain_online, 2)');
-    return
-end
-
-if evalin('base', 'exist(''Distime'', ''var'') == 1')
-    n_samples = evalin('base', 'size(Distime, 1)');
-    return
-end
-
-if evalin('base', 'exist(''recordedEMG'', ''var'') == 1')
-    n_samples = evalin('base', 'size(recordedEMG, 2)');
-    return
-end
-
-last_sample = 0;
 for mu = 1:numel(discharges)
-    if ~isempty(discharges{mu})
-        last_sample = max(last_sample, max(discharges{mu}));
-    end
+    samples = unique(round(discharges{mu}(:).'),'sorted');
+    samples = samples(isfinite(samples) & samples >= 1 & ...
+        samples <= n_samples);
+    spike_times{mu} = samples/signal.fsamp;
 end
 
-n_samples = max(last_sample, 1);
-end
-
-function spike_times = spike_matrix_to_times(spike_matrix, fs, n_MUs)
-spike_times = cell(1, n_MUs);
-
-for mu = 1:n_MUs
-    spike_idx = find(spike_matrix(:, mu));
-    spike_times{mu} = spike_idx(:).' / fs;
-end
+source_name = 'signal.Dischargetimes';
 end
 
 function plot_raster_panel(ax, spike_times, mu_order, n_spikes, colors, ...
     plot_start_sec, plot_stop_sec, plot_force_overlay, ...
-    force_time, force_signal, source_name)
+    force_time, force_signal)
 
 n_MUs = numel(mu_order);
 axes(ax)
