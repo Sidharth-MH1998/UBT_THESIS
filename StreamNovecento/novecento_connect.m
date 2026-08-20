@@ -2,7 +2,7 @@ function dev = novecento_connect(cfg)
 %NOVECENTO_CONNECT Open TCP connection and configure Novecento+ streaming.
 % Connect and prepare the hardware for reading
 % input : cfg containing the requested Novecento configuration
-%output : dev containing the connected device and all information required to read EMG
+% output : dev containing the connected device and all information required to read EMG
 
 
 ip = '169.254.1.10';

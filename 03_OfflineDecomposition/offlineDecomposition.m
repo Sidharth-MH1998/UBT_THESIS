@@ -1,5 +1,18 @@
-%parameters
-EMG=recordedEMG;
+clc
+clear;
+close all;
+%% Select and load the recording
+[loadedFileName,loadedFilePath] = uigetfile('*.mat','Select the EMG file to decompose');
+
+if isequal(loadedFileName,0)
+    error('No .mat file was selected.');
+end
+
+loadedFile = fullfile(loadedFilePath,loadedFileName);
+DataFile = load(loadedFile);
+EMG = DataFile.signal.data;
+
+%% Parameters
 fs = 2000;
 badchan = [];
 padLen = 200;
@@ -19,14 +32,14 @@ refineMU = 1;
 preproc_flag = 1;
 
 
-% 1. CALIBRATION (Run offline code once to get the filters)
+%% Calibration (run offline decomposition once to obtain the filters)
 
-results = decompose4(EMG, fs, badchan, padLen, initialization, NITER, nbextchan, silthr, covfilter, covthr, ...
-    differentialmode, peeloff_flag, peeloffwin, duplicatesthresh, CoVDR, contrastfunc, refineMU, preproc_flag);
+[signal,parameters] = decompose4(EMG, fs, badchan, padLen, initialization, NITER, nbextchan, silthr, covfilter, covthr, ...
+    differentialmode, peeloff_flag, peeloffwin, duplicatesthresh, CoVDR, contrastfunc, refineMU, preproc_flag, DataFile.signal.recordedEMG);
 
+%% Save beside the loaded recording
+[~,loadedBaseName] = fileparts(loadedFileName);
+outputFile = fullfile(loadedFilePath, [loadedBaseName '_decomposed4.mat']);
 
-signal = results.signal;
-parameters = results.parameters;
-
-save('decompose4.mat','signal','parameters', "results","recordedForce");
-
+save(outputFile,'signal','parameters','-v7.3');
+fprintf('Saved decomposition to:\n%s\n',outputFile);

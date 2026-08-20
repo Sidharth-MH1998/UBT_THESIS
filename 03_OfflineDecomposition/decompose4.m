@@ -1,14 +1,12 @@
-function decomp_results = decompose4(emg, fs, badchan, padLen, initialization, NITER, ...
+function [signal,parameters] = decompose4(emg, fs, badchan, padLen, initialization, NITER, ...
     nbextchan, silthr, covfilter, covthr, differentialmode, ...
-    peeloff_flag, peeloffwin, duplicatesthresh, CoVDR, ...
-    contrastfunc, refineMU, preproc_flag)
+    peeloff_flag, peeloffwin, duplicatesthresh, CoVDR, contrastfunc, refineMU, preproc_flag, recordedForce)
 
 % DECOMPOSE4 Decompose multichannel EMG into motor-unit pulse trains.
 %
-% The function preprocesses and extends the EMG, whitens the extended
-% signal, estimates independent sources with FastICA, It also removes
-% duplicate units, optionally refines their discharge times, calculates MUAP and
-% firing-rate measures, and creates structures that can be opened in MUedit.
+% The function preprocesses ,extends , whitens the extended signal, estimates
+% independent sources with FastICA, It also removes duplicate units, optionally
+% refines their discharge times, calculates MUAP and firing-rate.
 %
 % INPUTS
 %   emg               - EMG matrix arranged as channels x samples.
@@ -29,11 +27,12 @@ function decomp_results = decompose4(emg, fs, badchan, padLen, initialization, N
 %   contrastfunc      - FastICA contrast function, for example 'skew', 'kurtosis', or 'logcosh'.
 %   refineMU          - Refine discharge times over the complete signal
 %   preproc_flag      - Apply adaptive notch and band-pass filtering:
+%   recordedForce     - Optional force data stored with the output signal.
 %                       
 %
-% OUTPUT
-%   decomp_results    - Structure containing:
-%       B             - All estimated separation vectors.
+% OUTPUTS
+%   signal            - MUedit-compatible structure containing the original
+%                       signal and all decomposition results:
 %       peaks         - MU pulse trains with their original amplitudes
 %                       (motor units x samples).
 %       MUPulses      - Discharge sample indices, one cell per motor unit.
@@ -48,33 +47,34 @@ function decomp_results = decompose4(emg, fs, badchan, padLen, initialization, N
 %       D, E          - Eigenvalue and eigenvector matrices from PCA.
 %       whitened_mat  - Whitening matrix.
 %       MUFilters     - Original filters retained after SIL/CoV control.
-%       RefinedMUFilters - Rebuilt filters aligned with the final MUs.
-%       signal        - MUedit-compatible signal structure.
-%       parameters    - Parameters used for this decomposition.
+%   parameters        - Parameters used for this decomposition.
 
 %% Step 0: Initialize outputs
 
 % Initialize every field before processing 
 
-decomp_results = struct;
-decomp_results.B = [];
-decomp_results.peaks = [];
-decomp_results.MUPulses = {};
-decomp_results.spike_train = [];
-decomp_results.sil_all = [];
-decomp_results.cov_all = [];
-decomp_results.MUAPs = {};
-decomp_results.fr = {};
-decomp_results.mean_fr = [];
-decomp_results.p2ps = [];
-decomp_results.MU_locs = [];
-decomp_results.D = [];
-decomp_results.E = [];
-decomp_results.whitened_mat = [];
-decomp_results.MUFilters = [];
-decomp_results.RefinedMUFilters = [];
-decomp_results.signal = struct;
-decomp_results.parameters = struct;
+signal = struct;
+parameters = struct;
+
+if nargin < 19
+    recordedForce = [];
+end
+
+signal.peaks = [];
+signal.MUPulses = {};
+signal.spike_train = [];
+signal.sil_all = [];
+signal.cov_all = [];
+signal.MUAPs = {};
+signal.fr = {};
+signal.mean_fr = [];
+signal.p2ps = [];
+signal.MU_locs = [];
+signal.D = [];
+signal.E = [];
+signal.whitened_mat = [];
+signal.MUFilters = [];
+signal.recordedForce = recordedForce;
 
 
 %% Step 1: Preprocessing
@@ -251,11 +251,11 @@ end
 validMatch = retainedOriginalIndices > 0;
 
 if all(validMatch)
+    MUFilters = MUFilters(:,retainedOriginalIndices);
     sil_all = sil_all(retainedOriginalIndices);
     CoV = CoV(retainedOriginalIndices);
 else
-    sil_all = nan(1,numel(distimenew));
-    CoV = nan(1,numel(distimenew));
+    error('Could not match duplicate-filtered motor units to their filters.');
 end
 
 %% Step 8: Refine motor units 
@@ -288,6 +288,7 @@ end
 % keep only valid MUs
 distimenew = distimenew(validMU);
 Pulsetrain = Pulsetrain(validMU,:);
+MUFilters = MUFilters(:,validMU);
 
 if numel(sil_all) == numel(validMU)
     sil_all = sil_all(validMU);
@@ -341,32 +342,6 @@ if padLen > 0 % if there was padding, we remove it here
 
     fprintf('Signal returned to %d samples.\n',size(emg,2));
 end
-
-%% Step 11b: Rebuild filters for the final motor units
-
-% Rebuild from the unpadded raw calibration EMG so the saved filters match
-% live raw EMG. Final discharge times already reflect duplicate removal,
-% refinement, minimum-spike control, and padding removal. This uses the
-% same helper employed by MUedit when preparing filters for online use.
-finalEMGmask = zeros(nChannelsOriginal,1);
-finalEMGmask(badchan) = 1;
-
-RefinedMUFilters = getMUfilters( ...
-    originalEMG,finalEMGmask,Dischargetimes);
-
-% getMUfilters uses MUedit's fixed target of 1000 extended channels.
-filterExtensionFactor = round(1000/sum(finalEMGmask == 0));
-
-for mu = 1:nMUs
-    if ~all(isfinite(RefinedMUFilters(:,mu))) || ...
-            norm(RefinedMUFilters(:,mu)) == 0
-        error('The rebuilt filter for final MU %d is invalid.',mu);
-    end
-end
-
-fprintf('Rebuilt final MU filter matrix: %d x %d.\n', ...
-    size(RefinedMUFilters,1),size(RefinedMUFilters,2));
-
 
 %% Step 12: Compute average MUAP waveforms
 % peeloffwin = 0.025; % duration of the window for detecting the action potentials from the EMG signal
@@ -432,15 +407,12 @@ end
 
 %% Step 17: Create the signal structure
 
-signal = struct;
-
 signal.data = originalEMG; %channels x samples
 signal.fsamp = fs;
 signal.ngrid = 1;
 signal.emgtype = 1; % 1 = surface EMG, 2 = intramuscular EMG
 signal.Pulsetrain = {Pulsetrain}; % motor units x samples
-signal.MUFilters = MUFilters; % original filters before final MU cleanup
-signal.RefinedMUFilters = RefinedMUFilters; % one per final MU
+signal.MUFilters = MUFilters; % retained filters aligned with the final MUs
 
 % Cells indexed as {grid,motorUnit}
 signal.Dischargetimes = cell(1,nMUs);
@@ -483,8 +455,6 @@ signal.auxiliaryname = {'EMG amplitude'};
 
 %% Step 20: Record decomposition parameters for MUedit
 
-parameters = struct;
-
 parameters.initialization = initialization;
 parameters.NITER = NITER;
 parameters.nbextchan = nbextchan;
@@ -501,7 +471,6 @@ parameters.refineMU = refineMU;
 parameters.preproc = preproc_flag;
 parameters.padLen = padLen;
 parameters.badchan = badchan;
-parameters.filterExtensionFactor = filterExtensionFactor;
 % Standard MUedit fields
 parameters.nwindows = 1;
 parameters.thresholdtarget = 0.8;
@@ -523,17 +492,13 @@ if signal.ngrid ~= numel(signal.emgtype)
     error('signal.ngrid does not match signal.emgtype.');
 end
 
-if size(signal.RefinedMUFilters,2) ~= ...
-        size(signal.Pulsetrain{1},1)
-    error(['signal.RefinedMUFilters does not match the final ' ...
-        'motor-unit count.']);
+if size(signal.MUFilters,2) ~= size(signal.Pulsetrain{1},1)
+    error('signal.MUFilters does not match the final motor-unit count.');
 end
 
-expectedFilterRows = sum(signal.EMGmask{1} == 0)* ...
-    parameters.filterExtensionFactor;
-if size(signal.MUFilters,1) ~= expectedFilterRows || ...
-        size(signal.RefinedMUFilters,1) ~= expectedFilterRows
-    error('Saved MU filters do not match the extended channel count.');
+expectedFilterRows = sum(signal.EMGmask{1} == 0)*exFactor;
+if size(signal.MUFilters,1) ~= expectedFilterRows
+    error('signal.MUFilters does not match the extended channel count.');
 end
 
 if size(signal.data,2) ~= ...
@@ -606,27 +571,21 @@ for mu = 1:nMUs
     end
 end
 
-%% Step 22: Save outputs
+%% Step 22: Store every decomposition result in signal
 
-decomp_results.B = B;
-decomp_results.sil_all = sil_all;
-decomp_results.cov_all = CoV;
-decomp_results.peaks = Pulsetrain;
-decomp_results.MUPulses = Dischargetimes;
-decomp_results.spike_train = spike_train;
-decomp_results.MUAPs = MUAPs;
-decomp_results.fr = fr;
-decomp_results.mean_fr = mean_fr;
-decomp_results.p2ps = p2ps;
-decomp_results.MU_locs = chan_max;
-decomp_results.D = D;
-decomp_results.E = E;
-decomp_results.whitened_mat = w_mat;
-decomp_results.MUFilters = MUFilters;
-decomp_results.RefinedMUFilters = RefinedMUFilters;
-
-% MUedit-compatible outputs
-decomp_results.signal = signal;
-decomp_results.parameters = parameters;
+signal.sil_all = sil_all;
+signal.cov_all = CoV;
+signal.peaks = Pulsetrain;
+signal.MUPulses = Dischargetimes;
+signal.spike_train = spike_train;
+signal.MUAPs = MUAPs;
+signal.fr = fr;
+signal.mean_fr = mean_fr;
+signal.p2ps = p2ps;
+signal.MU_locs = chan_max;
+signal.D = D;
+signal.E = E;
+signal.whitened_mat = w_mat;
+signal.MUFilters = MUFilters;
 
 end

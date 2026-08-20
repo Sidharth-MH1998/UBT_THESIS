@@ -1,28 +1,7 @@
 function StreamForceAndEmgV2(config)
-%STREAMFORCEANDEMGV2 Stream, display, and record force and EMG signals.
-% During recording, all force and EMG samples are stored. The EMG preview
-% displays only selected channels to keep the live plot responsive.
-%
-% When EMG streaming is enabled, the saved MAT file includes:
-%   recordedForce - Recorded force samples x 3 force channels.
-%   recordedEMG   - 128 EMG channels x recorded EMG samples.
-%   emgData       - Complete EMG circular buffer.
-%   fs_force      - Force sampling frequency.
-%   fs_emg        - EMG sampling frequency.
-
-%% Read configuration
-requiredFields = {'arduinoPort','forceFs','maxDurationSec','emgEnabled', ...
-    'emgActiveInputs','emgChannels','emgPreviewRows', ...
-    'emgBlockDurationSec','muEditGridName','muEditMuscle', ...
-    'emgPlotUpdateRate','emgDisplayDecimation','displayTimeSec', ...
-    'bufferTimeSec','forcePlotUpdateRate','forceCalibrationFile', ...
-    'promptForceCalibration','defaultCalibrationFactors', ...
-    'defaultZeroValues','defaultReverseStates'};
-for fieldIdx = 1:numel(requiredFields)
-    if ~isfield(config, requiredFields{fieldIdx})
-        error('Missing configuration field: config.%s', requiredFields{fieldIdx});
-    end
-end
+% streamForceAndEmgV2 uses the config struct. with the user settings in
+% config records force and Emg with low fs realtime feedback.
+%% 1. Read and setup configuration
 
 ard_port = config.arduinoPort;
 fs_force = config.forceFs;
@@ -41,6 +20,7 @@ numForceChan = 3;
 displayTime = config.displayTimeSec;
 bufferTime = config.bufferTimeSec;
 plotUpdateRate = config.forcePlotUpdateRate;
+
 % With 50-Hz force and a 10-Hz plot, redraw after every five new samples.
 plotUpdateInterval = round(fs_force / plotUpdateRate);
 
@@ -54,19 +34,19 @@ defaultCalibrationFactors = config.defaultCalibrationFactors;
 defaultZeroValues = config.defaultZeroValues;
 defaultReverseStates = config.defaultReverseStates;
 
-%% choosing calibration file 
+%% 2. choosing calibration file 
 % Select a calibration file using uigetfile . Press Cancel to use the default values.
 calibrationFile = config.forceCalibrationFile;
 if isempty(calibrationFile) && config.promptForceCalibration
-    forceScriptDir = fileparts(mfilename('fullpath'));
-    [calibrationFileName, calibrationFolder] = uigetfile( ...
-        fullfile(forceScriptDir, '*.mat'), ...
-        'Select calibration file, or press Cancel to use defaults');
+    ScriptDir = fileparts(mfilename('fullpath'));
+    [calibrationFileName, path] = uigetfile(fullfile(ScriptDir, '*.mat'),'Select calibration file, or press Cancel to use defaults');
     if ~isequal(calibrationFileName, 0)
-        calibrationFile = fullfile(calibrationFolder, calibrationFileName);
+        calibrationFile = fullfile(path, calibrationFileName);
     end
 end
 
+
+%% 3. load calibration values
 if ~isempty(calibrationFile)
     calibrationData = load(calibrationFile, 'calibrationFactors', 'zeroValues', 'reverseStates');
 
@@ -74,7 +54,7 @@ if ~isempty(calibrationFile)
     zeroValues = calibrationData.zeroValues;
     reverseStates = calibrationData.reverseStates;
 
-    disp(['Loaded calibration: ', calibrationFile]);
+    disp(['Loaded calibration data from : ', calibrationFile]);
 else
     calibrationFactors = defaultCalibrationFactors;
     zeroValues = defaultZeroValues;
@@ -82,23 +62,22 @@ else
     disp('No calibration file selected. Using default calibration values.');
 end
 
-%% Initialize figure and axes
+%% 4. Initialize figure and axes
 [fig, ax_f, ax_emg, btnClose, btnZero, btnRecord, btnRecordTracking, ...
     forceChanDropdown, traceTypeDropdown, tWaitBox, tSlopeBox, tPlateauBox, ...
     forceTargetBox, forceSignLabel, forceSignCheckbox, participantIDBox, ...
-    trialBox, sessionBox] = setupRecordingFigure( ...
-    EmgToggle, numel(emgPreviewRows));
+    trialBox, sessionBox] = setupRecordingFigure(EmgToggle, numel(emgPreviewRows));
 
-%% Setup Force streaming from Arduino
+%% 5. Setup Force streaming from Arduino
 serialObj = initializeArduinoStream(ard_port); % MATLAB’s communication link to the Arduino
-serialCleanup = onCleanup(@() closeSerialObject(serialObj));
+serialCleanup = onCleanup(@() closeSerialObject(serialObj)); 
 
-%% Setup EMG streaming and plotting when enabled
+%% 6. Setup EMG streaming and plotting when enabled
 if EmgToggle
-    emgCfg = makeNovecentoConfig( ...
-        emgBlockDurationSec,emgActiveInputs,emgChannels);
+    emgCfg = makeNovecentoConfig(emgBlockDurationSec,emgActiveInputs,emgChannels);
     novecentoDev = novecento_connect(emgCfg);
-    emgCleanup = onCleanup(@() closeEMGStream(novecentoDev, true));
+    emgCleanup = onCleanup(@() closeEMGStream(novecentoDev, true)); % clean up TCP
+
     %sanity check
     activeFs = novecentoDev.fsInput(emgCfg.activeInputs);
     if any(activeFs <= 0) || numel(unique(activeFs)) ~= 1
@@ -110,6 +89,7 @@ if EmgToggle
             mat2str(activeFs.'), ...
             mat2str(novecentoDev.Settings(emgCfg.activeInputs + 1)));
     end
+
     fs_emg = activeFs(1);
     emgSamplesPerBlock = round(fs_emg * emgCfg.blockDurationSec);
     maxEMGSamples = fs_emg * maxDuration;
@@ -127,7 +107,7 @@ else
     emgFig = [];
 end
 
-%% Initialize variables
+%% 7. Initialize variables
 forceTarget = 100;
 forceMin = 0;
 forceSample = [0; 0; 0];
@@ -146,20 +126,20 @@ forceTimes = zeros(1, maxForceSamples);
 
 forceLines = initializeForcePlot(ax_f, numForceChan);
 
-%% Main loop to stream force data at 50 Hz for plotting
+%% 8. Main loop to stream force data at 50 Hz for plotting
 forceStreamTime = tic;
 
-while ishandle(fig)
+while ishandle(fig) % continue until main fig is on
     loopStartTime = tic;
     try
-        % ----------- Force data streaming -----------
+        %% ----------- Force data streaming -----------
         while serialObj.NumBytesAvailable > 0
             % Expected Arduino line format:timestamp,force1,force2,force3
             serialLine = readline(serialObj);
             fSample = sscanf(char(serialLine), '%f,%f,%f,%f');
 
-            if numel(fSample) >= 4
-                nextForceIndex = currentForceIndex + 1;
+            if numel(fSample) >= 4 % The sample is processed if it contains at least four numbers:
+                nextForceIndex = currentForceIndex + 1; 
                 if nextForceIndex > maxForceSamples
                     nextForceIndex = 1;
                 end
@@ -213,10 +193,10 @@ while ishandle(fig)
             end
         end
 
-        % ----------- EMG data streaming and plotting -----------
+        %% ----------- EMG data streaming and plotting -----------
         if EmgToggle
-            rawEMG = novecento_read_emg_block(novecentoDev,emgCfg.activeInputs, emgSamplesPerBlock);
-            emgSample = double(rawEMG(emgCfg.emgChannels, :));
+            rawEMG = novecento_read_emg_block(novecentoDev,emgCfg.activeInputs, emgSamplesPerBlock); % one EMG block
+            emgSample = double(rawEMG(emgCfg.emgChannels, :)); % 64 out of 70 from novecento
 
             nEMGSamples = size(emgSample, 2);
             nextEMGIndex = currentEMGIndex + nEMGSamples;
@@ -225,7 +205,7 @@ while ishandle(fig)
                 emgData(:, currentEMGIndex + 1:nextEMGIndex) = emgSample;
                 currentEMGIndex = nextEMGIndex;
             else
-                % Start a fresh EMG buffer after the configured ten minutes.
+                % Start a fresh EMG buffer after the configured minutes.
                 currentEMGIndex = nEMGSamples;
                 emgData(:, 1:currentEMGIndex) = emgSample;
             end
@@ -435,143 +415,7 @@ end
 clear emgCleanup serialCleanup;
 
 end
-
-%% Local functions
-
-function [fig, ax_f, ax_emg, btnClose, btnZero, btnRecord, btnRecordTracking, ...
-    forceChanDropdown, traceTypeDropdown, tWaitBox, tSlopeBox, tPlateauBox, ...
-    forceTargetBox, forceSignLabel, forceSignCheckbox, participantIDBox, ...
-    trialBox, sessionBox] = setupRecordingFigure(emgEnabled, numPreviewChannels)
-
-    fig = figure('Name', 'Force and EMG Recording', ...
-        'NumberTitle', 'off', ...
-        'Color', [0.94, 0.94, 0.94], ...
-        'Position', [60, 50, 1450, 850]);
-
-    ax_f = axes('Parent', fig, 'Units', 'normalized', ...
-        'Position', [0.055, 0.56, 0.70, 0.39]);
-    hold(ax_f, 'on');
-    grid(ax_f, 'on');
-    xlabel(ax_f, 'Time (s)');
-    ylabel(ax_f, 'Force (% calibrated)');
-    title(ax_f, 'Live Force Data');
-    ylim(ax_f, [-10 110]);
-
-    ax_emg = axes('Parent', fig, 'Units', 'normalized', ...
-        'Position', [0.055, 0.08, 0.70, 0.37]);
-    hold(ax_emg, 'on');
-    grid(ax_emg, 'on');
-    title(ax_emg, sprintf('Live Novecento EMG - %d preview channels', ...
-        numPreviewChannels));
-    xlabel(ax_emg, 'Time (s)');
-    ylabel(ax_emg, 'Novecento channel');
-    if ~emgEnabled
-        title(ax_emg, 'EMG disabled');
-        set(ax_emg, 'Visible', 'off');
-    end
-
-    controls = uipanel('Parent', fig, 'Title', 'Recording Controls', ...
-        'Units', 'normalized', 'Position', [0.78, 0.05, 0.20, 0.90], ...
-        'BackgroundColor', fig.Color);
-    labelX = 0.08; fieldX = 0.53; labelW = 0.42; fieldW = 0.39;
-    rowY = [0.91 0.83 0.75 0.67 0.59 0.51 0.43 0.35 0.27];
-    labels = {'Participant','Session','Trial','Digit/Channel','Trace', ...
-        'Wait (s)','Slope (s)','Plateau (s)','Target (%)'};
-    for k = 1:numel(labels)
-        uicontrol(controls, 'Style', 'text', 'String', labels{k}, ...
-            'Units', 'normalized', 'Position', [labelX rowY(k) labelW 0.045], ...
-            'HorizontalAlignment', 'left', 'BackgroundColor', controls.BackgroundColor);
-    end
-    participantIDBox = uicontrol(controls, 'Style', 'edit', 'String', '', ...
-        'Units', 'normalized', 'Position', [fieldX rowY(1) fieldW 0.05]);
-    sessionBox = uicontrol(controls, 'Style', 'edit', 'String', '1', ...
-        'Units', 'normalized', 'Position', [fieldX rowY(2) fieldW 0.05]);
-    trialBox = uicontrol(controls, 'Style', 'edit', 'String', '1', ...
-        'Units', 'normalized', 'Position', [fieldX rowY(3) fieldW 0.05]);
-    forceChanDropdown = uicontrol(controls, 'Style', 'popupmenu', ...
-        'String', {'1', '2', '3'}, 'Value', 2, 'Units', 'normalized', ...
-        'Position', [fieldX rowY(4) fieldW 0.05]);
-    traceTypeDropdown = uicontrol(controls, 'Style', 'popupmenu', ...
-        'String', {'Trapezium', 'Triangular'}, 'Units', 'normalized', ...
-        'Position', [fieldX rowY(5) fieldW 0.05]);
-    tWaitBox = uicontrol(controls, 'Style', 'edit', 'String', '5', ...
-        'Units', 'normalized', 'Position', [fieldX rowY(6) fieldW 0.05]);
-    tSlopeBox = uicontrol(controls, 'Style', 'edit', 'String', '3', ...
-        'Units', 'normalized', 'Position', [fieldX rowY(7) fieldW 0.05]);
-    tPlateauBox = uicontrol(controls, 'Style', 'edit', 'String', '5', ...
-        'Units', 'normalized', 'Position', [fieldX rowY(8) fieldW 0.05]);
-    forceTargetBox = uicontrol(controls, 'Style', 'edit', 'String', '30', ...
-        'Units', 'normalized', 'Position', [fieldX rowY(9) fieldW 0.05]);
-
-    forceSignCheckbox = uicontrol(controls, 'Style', 'checkbox', ...
-        'String', 'Extension +', 'Value', 0, 'Units', 'normalized', ...
-        'Position', [0.08, 0.19, 0.84, 0.05], ...
-        'BackgroundColor', controls.BackgroundColor);
-    forceSignLabel = uicontrol(controls, 'Style', 'text', ...
-        'String', sprintf('%s\n%s', '(+): Flexion', '(-): Extension '), ...
-        'Units', 'normalized', 'Position', [0.08, 0.125, 0.84, 0.06], ...
-        'HorizontalAlignment', 'left', 'BackgroundColor', controls.BackgroundColor);
-
-    btnRecordTracking = uicontrol(controls, 'Style', 'togglebutton', ...
-        'String', 'Track Record', 'Units', 'normalized', ...
-        'Position', [0.08, 0.065, 0.40, 0.05]);
-    btnRecord = uicontrol(controls, 'Style', 'togglebutton', ...
-        'String', 'Record', 'Units', 'normalized', ...
-        'Position', [0.52, 0.065, 0.40, 0.05]);
-    btnZero = uicontrol(controls, 'Style', 'togglebutton', ...
-        'String', 'Zero', 'Units', 'normalized', ...
-        'Position', [0.08, 0.005, 0.40, 0.05]);
-    btnClose = uicontrol(controls, 'Style', 'togglebutton', ...
-        'String', 'Close', 'BackgroundColor', [0.85 0.25 0.25], ...
-        'Units', 'normalized', 'Position', [0.52, 0.005, 0.40, 0.05]);
-end
-% connect to arduino
-function serialObj = initializeArduinoStream(ard_port)
-    availablePorts = serialportlist("available");
-    if ~any(strcmpi(availablePorts, ard_port))
-        error('Arduino port %s is not available. Available ports: %s', ...
-            ard_port, strjoin(cellstr(availablePorts), ', '));
-    end
-
-    serialObj = serialport(ard_port, 115200, 'Timeout', 2);
-    configureTerminator(serialObj, "LF");
-    pause(1);
-    flush(serialObj, "input");
-    disp(['Arduino force stream connected on ', ard_port]);
-end
-% initialize force plot
-function forceLines = initializeForcePlot(ax_f, numForceChan)
-    colors = lines(numForceChan);
-    forceLines = gobjects(numForceChan, 1);
-
-    for i = 1:numForceChan
-        forceLines(i) = animatedline(ax_f, 'Color', colors(i, :), 'LineWidth', 1.5);
-    end
-
-    legend(ax_f, {'Load cell 1', 'Load cell 2', 'Load cell 3'}, 'Location', 'northwest');
-end
-% update the force plot
-function updateForcePlot(ax_f, forceLines, forceData, fs_force, numForceChan, ...
-    displayTime, bufferTime, ~, ~, currentForceIndex)
-
-    if currentForceIndex < 1 % first sample
-        return
-    end
-
-    currentTime = currentForceIndex / fs_force;
-    idxStart = max(1, currentForceIndex - round(displayTime * fs_force));
-    idx = idxStart:currentForceIndex;
-    t = idx / fs_force;
-
-    for i = 1:numForceChan
-        clearpoints(forceLines(i));
-        addpoints(forceLines(i), t, forceData(idx, i));
-    end
-
-    xlim(ax_f, [currentTime - displayTime, currentTime + bufferTime]);
-    ylim(ax_f, [-10 110]);
-end
-
+%% helper 1
 function [tTrace, fTrace] = force_trace_trapezium(tPlateau, tSlope, tWait, forceTarget, fs_force)
     tTotal = 2 * tWait + 2 * tSlope + tPlateau;
     tTrace = 0:1/fs_force:tTotal;
@@ -591,6 +435,7 @@ function [tTrace, fTrace] = force_trace_trapezium(tPlateau, tSlope, tWait, force
     fTrace(rampDownIdx) = forceTarget * (1 - (tTrace(rampDownIdx) - rampDownStart) / tSlope);
 end
 
+%% helper 2
 function [tTrace, fTrace] = force_trace_triang(fs_force)
     duration = 25;
     target = 30;
@@ -609,6 +454,8 @@ function [tTrace, fTrace] = force_trace_triang(fs_force)
     fTrace(idx4) = -target * (1 - (tTrace(idx4) - 3 * quarter) / quarter);
 end
 
+
+%% helper 3
 function recordedForce = cropCircularForceData(forceData, recordStartForce, recordEndForce, maxForceSamples)
     if isempty(recordStartForce) || isempty(recordEndForce)
         recordedForce = [];
@@ -625,6 +472,8 @@ function recordedForce = cropCircularForceData(forceData, recordStartForce, reco
     end
 end
 
+
+%% helper 4
 function recordedEMG = cropCircularEMGData(emgData, recordStartEMG, recordEndEMG, maxEMGSamples)
     if isempty(recordStartEMG) || isempty(recordEndEMG) || recordEndEMG < 1
         recordedEMG = [];
@@ -642,6 +491,7 @@ function recordedEMG = cropCircularEMGData(emgData, recordStartEMG, recordEndEMG
     end
 end
 
+%% clean serial port
 function closeSerialObject(serialObj)
     if ~isempty(serialObj) && isvalid(serialObj)
         delete(serialObj);
@@ -649,93 +499,7 @@ function closeSerialObject(serialObj)
     end
 end
 
-function signal = buildMUeditSignal(recordedEMG, fsEMG, recordedForce, ...
-    forceChannel, forceTarget, activeInputs, gridName, muscleName)
-% Build the MAT-file structure expected by MUedit.
-    nSamples = size(recordedEMG, 2);
-    nGrids = numel(activeInputs);
-
-    signal = struct();
-    signal.data = recordedEMG;
-    signal.fsamp = fsEMG;
-    signal.nChan = size(recordedEMG, 1);
-    signal.ngrid = nGrids;
-    signal.gridname = repmat({gridName}, 1, nGrids);
-    signal.muscle = repmat({muscleName}, 1, nGrids);
-    signal.target = repmat(forceTarget, 1, nSamples);
-
-    forceChannel = min(max(round(forceChannel), 1), size(recordedForce, 2));
-    if isempty(recordedForce) || nSamples == 0
-        signal.path = zeros(1, nSamples);
-    elseif size(recordedForce, 1) == 1
-        signal.path = repmat(recordedForce(1, forceChannel), 1, nSamples);
-    else
-        sourcePosition = linspace(0, 1, size(recordedForce, 1));
-        emgPosition = linspace(0, 1, nSamples);
-        signal.path = interp1(sourcePosition, ...
-            recordedForce(:, forceChannel).', emgPosition, 'linear');
-    end
-end
-
-function updateLiveEMGPlot(ax_emg, emgData, currentEMGIndex, ...
-    fs_emg, displayTime, previewRows, emgChannelLabels, displayDecimation)
-
-    if currentEMGIndex < 1
-        return;
-    end
-
-    previewRows = previewRows(previewRows >= 1 & previewRows <= size(emgData, 1));
-    if isempty(previewRows)
-        return;
-    end
-    nVisible = min(currentEMGIndex, round(displayTime * fs_emg));
-    firstSample = currentEMGIndex - nVisible + 1;
-    displayIndices = firstSample:displayDecimation:currentEMGIndex;
-    visibleEMG = emgData(previewRows, displayIndices);
-    labels = emgChannelLabels(previewRows);
-    displayFs = fs_emg / displayDecimation;
-    firstDisplaySample = (displayIndices(1) - 1) / displayDecimation + 1;
-
-    updateStackedEMGPreview(ax_emg, visibleEMG, labels, ...
-        displayFs, firstDisplaySample, displayTime);
-end
-
-function updateStackedEMGPreview(ax, block, channelLabels, fs, ...
-    firstSample, visibleWindowSec)
-% Smooth local EMG preview used only by StreamForceAndEmgV2.
-    plotBlock = double(block);
-    nChannels = size(plotBlock, 1);
-    offset = max(max(std(plotBlock, 0, 2) * 6), 1);
-    xSec = ((firstSample - 1):(firstSample + size(plotBlock, 2) - 2)) / fs;
-
-    plotState = getappdata(ax, 'StreamForceEMGPlotState');
-    needsInitialization = isempty(plotState) || ...
-        ~isfield(plotState, 'lines') || ...
-        numel(plotState.lines) ~= nChannels || ...
-        ~all(isgraphics(plotState.lines));
-
-    if needsInitialization
-        hold(ax, 'on');
-        plotState.lines = gobjects(nChannels, 1);
-        for ch = 1:nChannels
-            plotState.lines(ch) = plot(ax, nan, nan, 'LineWidth', 0.8);
-        end
-        hold(ax, 'off');
-        setappdata(ax, 'StreamForceEMGPlotState', plotState);
-    end
-
-    for ch = 1:nChannels
-        set(plotState.lines(ch), 'XData', xSec, ...
-            'YData', plotBlock(ch,:) + offset * (ch - 1));
-    end
-
-    xEnd = max(xSec(end), visibleWindowSec);
-    xlim(ax, [xEnd - visibleWindowSec xEnd]);
-    yticks(ax, offset * (0:(nChannels - 1)));
-    yticklabels(ax, cellstr(num2str(channelLabels(:))));
-    ylim(ax, [-offset offset * nChannels]);
-end
-
+%% clean TCP
 function closeEMGStream(novecentoDev, EmgToggle)
     if ~EmgToggle || isempty(novecentoDev)
         return;
@@ -745,31 +509,4 @@ function closeEMGStream(novecentoDev, EmgToggle)
         novecento_disconnect(novecentoDev);
     catch
     end
-end
-%% Novecento configuration 
-function cfg = makeNovecentoConfig(blockDurationSec,activeInputs,emgChannels)
-    cfg = struct();
-    cfg.socketTimeoutSec = 100;
-    cfg.activeInputs = activeInputs;
-    cfg.emgChannels = emgChannels;
-    cfg.blockDurationSec = blockDurationSec;
-    cfg.GainFactor = 0.2861;
-    cfg.FSelAux = 2;
-    cfg.forceInputChannelCounts = [];
-    cfg.hardwareQueryRetries = 3;
-    cfg.hardwareQueryPauseSec = 0.2;
-    cfg.AnOutINSource = 0;
-    cfg.AnOutChan = 1;
-    cfg.AnOutGain = bin2dec('00000000');
-    cfg.IN_Active = zeros(10, 1);
-    cfg.Mode = zeros(10, 1);
-    cfg.Gain = zeros(10, 1);
-    cfg.HRES = zeros(10, 1);
-    cfg.HPF = zeros(10, 1);
-    cfg.FsampCode = zeros(10, 1);
-    cfg.IN_Active(cfg.activeInputs) = 1;
-    cfg.Gain(cfg.activeInputs) = 1;
-    cfg.HRES(cfg.activeInputs) = 0;
-    cfg.HPF(cfg.activeInputs) = 1;
-    cfg.FsampCode(cfg.activeInputs) = 1;
 end
