@@ -128,6 +128,12 @@ esample2 = zeros(nGood * extensionfactor, extensionfactor - 1);
 
 %% 3) Figure/state initialization and online accumulators
 [fig, plotState] = init_live_figure(nMU, cfg, sharedUI);
+if isfield(cfg,'showQuadrant') && cfg.showQuadrant
+    quadrantState = ispin_quadrant_feedback( ...
+        'init',nMU,fs_online,windowSec,cfg);
+else
+    quadrantState = struct('enabled',false);
+end
 
 Distime_chunks = {};
 Pulsetrain_chunks = {};
@@ -215,6 +221,8 @@ while ishandle(fig)
     currentTime = sampleCursor / fs_online;
 
     update_live_plot(fig, plotState, Dischargetimes_online, fr_online, currentTime, cfg, fs_online);
+    quadrantState = ispin_quadrant_feedback( ...
+        'update',quadrantState,distChunk,currentTime);
 
     if cfg.printEveryNWindows > 0 && mod(windowCount, cfg.printEveryNWindows) == 0
         spikesThisWin = sum(distChunk, 1);
@@ -256,6 +264,7 @@ out.online.Distime = Distime;
 out.online.Dischargetimes = Dischargetimes_online;
 out.online.fr = fr_online;
 out.online.mean_fr = mean_fr_online;
+out.online.quadrant = ispin_quadrant_feedback('export',quadrantState);
 if isempty(Pulsetrain_online)
     out.online.Time = zeros(1,0);
 else

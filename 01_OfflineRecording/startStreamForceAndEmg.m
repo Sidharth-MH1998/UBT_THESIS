@@ -1,7 +1,4 @@
 %% prepare workspace
-clear;
-close all;
-clc;
 % serialportlist("available")
 
 %% User Config
@@ -21,7 +18,7 @@ config.emgPlotUpdateRate = 10;     % Emg plot refresh rate
 config.emgDisplayDecimation = 10;  % fs /10 pints are plotted
 
 % Live display
-config.displayTimeSec = 15;
+config.displayTimeSec = 2;
 config.bufferTimeSec = 5;  %future horizontal space shown on the force plot.
 config.forcePlotUpdateRate = 10; % force plot refresh rate
 

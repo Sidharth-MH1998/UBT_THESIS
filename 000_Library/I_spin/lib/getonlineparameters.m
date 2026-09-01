@@ -1,7 +1,7 @@
 function [exFactor, iReSIGt, norm, centroid] = getonlineparameters(EMG, EMGmask, MUFilters, fsamp)
 
 EMG(EMGmask > 0,:) = [];
-nbextchan = 1024;%change this
+nbextchan = 1000;
 exFactor = round(nbextchan/size(EMG,1));
 eSIG = demean(extend(EMG,exFactor));
 ReSIG = eSIG*eSIG'/length(eSIG);

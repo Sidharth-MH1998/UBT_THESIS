@@ -35,7 +35,7 @@ preproc_flag = 1;
 %% Calibration (run offline decomposition once to obtain the filters)
 
 [signal,parameters] = decompose4(EMG, fs, badchan, padLen, initialization, NITER, nbextchan, silthr, covfilter, covthr, ...
-    differentialmode, peeloff_flag, peeloffwin, duplicatesthresh, CoVDR, contrastfunc, refineMU, preproc_flag, DataFile.signal.recordedEMG);
+    differentialmode, peeloff_flag, peeloffwin, duplicatesthresh, CoVDR, contrastfunc, refineMU, preproc_flag, DataFile.signal.recordedForce);
 
 %% Save beside the loaded recording
 [~,loadedBaseName] = fileparts(loadedFileName);

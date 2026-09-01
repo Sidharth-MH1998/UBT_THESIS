@@ -10,9 +10,9 @@ close all;
 %% user config
 cfg = struct();
 cfg.socketTimeoutSec = 100;
-cfg.activeInputs = [1 2]; %inputs
-cfg.emgChannels = [1:64 71:134]; %channel Config
-cfg.previewChannels = 1:8:128;
+cfg.activeInputs = [1]; %inputs
+cfg.emgChannels = [1:64]   % 71:134]; %channel Config
+cfg.previewChannels = 1:4:64;
 cfg.blockDurationSec = 1;
 cfg.visibleWindowSec = 15;
 

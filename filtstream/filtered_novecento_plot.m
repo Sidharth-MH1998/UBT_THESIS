@@ -35,7 +35,7 @@ cfg.previewChannels = 1:4:64;
 % value such as 0.5, 1, or 2 seconds.
 % visibleWindowSec controls the plot window length only.
 cfg.blockDurationSec = 1;
-cfg.visibleWindowSec = 10;
+cfg.visibleWindowSec = 2;
 
 %% Display-only filtering
 % These settings affect only the live preview. recordedEMG and trimmedEMG

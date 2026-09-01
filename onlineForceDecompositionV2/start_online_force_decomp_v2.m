@@ -54,6 +54,15 @@ cfg.showLegend = true;
 cfg.frYLim = 60; % ylimit for firing rate
 cfg.queryMetadata = false;
 
+% I-Spin-style quadrant feedback (two selected motor units)
+cfg.showQuadrant = true;
+cfg.quadrantXMU = 1;
+cfg.quadrantYMU = 2;
+cfg.quadrantRateWindowSec = 1.0; % spike-count window used for pps
+cfg.quadrantSmoothingWindows = 4; % moving average of displayed rates
+cfg.quadrantHistorySec = 7.5; % visible cursor trail
+cfg.quadrantAxisMax = []; % [] expands automatically, starting at 30 pps
+
 % Communication reliability
 cfg.socketTimeoutSec = 100;
 cfg.hardwareQueryRetries = 3;

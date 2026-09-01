@@ -124,7 +124,7 @@ zeroed = false;
 elapsedExecTimes = zeros(1, maxForceSamples);
 forceTimes = zeros(1, maxForceSamples);
 
-forceLines = initializeForcePlot(ax_f, numForceChan);
+forceLines = initializeStreamForcePlot(ax_f, numForceChan);
 
 %% 8. Main loop to stream force data at 50 Hz for plotting
 forceStreamTime = tic;
@@ -186,7 +186,7 @@ while ishandle(fig) % continue until main fig is on
 
                 % Step 6: Update plot
                 if mod(currentForceIndex, plotUpdateInterval) == 0
-                    updateForcePlot(ax_f, forceLines, forceData, fs_force, numForceChan, ...
+                    updateStreamForcePlot(ax_f, forceLines, forceData, fs_force, numForceChan, ...
                         displayTime, bufferTime, forceTarget, forceMin, currentForceIndex);
                 end
                 forceTimes(currentForceIndex) = toc(forceStreamTime);
