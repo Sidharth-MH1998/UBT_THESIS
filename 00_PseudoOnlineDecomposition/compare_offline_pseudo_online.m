@@ -1,20 +1,24 @@
 %% COMPARE OFFLINE VS PSEUDO-ONLINE DECOMPOSITION
-% -------------------------------------------------------------------------
-% Required variables in workspace:
-%   Calib_data.MUPulses
-%   Dischargetimes_online
-%   fs
 %
-% Optional variables in workspace:
-%   fs_online_compare
-%   tol_ms
+% Required workspace variables from pseudo_online_withfr_v3:
+%   Dischargetimes_online : 1 x nMU cell of 1-based sample indices
+%   fs                    : sampling frequency in Hz
+%
+% Offline reference, in order of preference:
+%   offline_MUPulses      : MUPulses from offline decomposition of the
+%                           same trial processed by pseudo_online_withfr_v3
+%   Offline_data.MUPulses : equivalent reference stored in a structure
+%   Calib_data.MUPulses   : fallback, valid only when the calibration
+%                           recording is also the pseudo-online test input
+%
+% Optional workspace variables:
+%   fs_online_compare     : online sampling frequency; defaults to fs
+%   tol_ms                : spike matching tolerance; defaults to 0.5 ms
 
-assert(exist('Calib_data', 'var') == 1, 'Calib_data not found in workspace.');
-assert(isfield(Calib_data, 'MUPulses'), 'Calib_data.MUPulses not found.');
+%% Validate pseudo-online inputs
 assert(exist('Dischargetimes_online', 'var') == 1, 'Dischargetimes_online not found in workspace.');
 assert(exist('fs', 'var') == 1, 'fs not found in workspace.');
 
-offlinePulses = Calib_data.MUPulses;
 onlinePulses = Dischargetimes_online;
 fsOffline = fs;
 
@@ -28,12 +32,45 @@ if exist('tol_ms', 'var') ~= 1
     tol_ms = 0.5;
 end
 
-validateattributes(offlinePulses, {'cell'}, {});
 validateattributes(onlinePulses, {'cell'}, {});
 validateattributes(fsOffline, {'numeric'}, {'scalar','positive'});
 validateattributes(fsOnline, {'numeric'}, {'scalar','positive'});
 validateattributes(tol_ms, {'numeric'}, {'scalar','positive'});
 
+%% Select the offline reference
+if exist('offline_MUPulses', 'var') == 1
+    offlinePulses = offline_MUPulses;
+    offlineSource = 'offline_MUPulses';
+elseif exist('Offline_data', 'var') == 1 && isstruct(Offline_data) && ...
+        isfield(Offline_data, 'MUPulses')
+    offlinePulses = Offline_data.MUPulses;
+    offlineSource = 'Offline_data.MUPulses';
+elseif exist('Calib_data', 'var') == 1 && isstruct(Calib_data) && ...
+        isfield(Calib_data, 'MUPulses')
+    offlinePulses = Calib_data.MUPulses;
+    offlineSource = 'Calib_data.MUPulses';
+    warning(['Using calibration MUPulses as the offline reference. ' ...
+        'This comparison is valid only if pseudo_online_withfr_v3 processed ' ...
+        'that same calibration recording.']);
+else
+    error(['No offline reference found. Define offline_MUPulses or ' ...
+        'Offline_data.MUPulses from an offline decomposition of the ' ...
+        'same trial used by pseudo_online_withfr_v3.']);
+end
+validateattributes(offlinePulses, {'cell'}, {});
+
+% V3 processes complete windows only. Exclude offline spikes in the final
+% partial window so they are not incorrectly counted as false negatives.
+if exist('nwin', 'var') == 1 && exist('window_samples', 'var') == 1
+    processedSamples = nwin * window_samples;
+    for mu = 1:numel(offlinePulses)
+        offlinePulses{mu} = offlinePulses{mu}(offlinePulses{mu} <= processedSamples);
+    end
+else
+    processedSamples = inf;
+end
+
+%% Calculate agreement for every MU pair
 roa_matrix = zeros(numel(offlinePulses), numel(onlinePulses));
 
 for i = 1:numel(offlinePulses)
@@ -68,8 +105,10 @@ for i = 1:numel(offlinePulses)
     end
 end
 
+%% Pair offline and pseudo-online motor units
 work_roa = roa_matrix;
-matches = zeros(0,2);
+matches = zeros(min(size(work_roa)),2);
+matchCount = 0;
 
 while ~isempty(work_roa) && any(isfinite(work_roa(:)))
     [bestVal, linearIdx] = max(work_roa(:));
@@ -78,11 +117,14 @@ while ~isempty(work_roa) && any(isfinite(work_roa(:)))
     end
 
     [iBest, jBest] = ind2sub(size(work_roa), linearIdx);
-    matches(end+1,:) = [iBest jBest]; %#ok<AGROW>
+    matchCount = matchCount + 1;
+    matches(matchCount,:) = [iBest jBest];
     work_roa(iBest,:) = -inf;
     work_roa(:,jBest) = -inf;
 end
+matches = matches(1:matchCount,:);
 
+%% Build the comparison summary
 nMatch = size(matches, 1);
 summary_table = table('Size', [nMatch 10], ...
     'VariableTypes', {'double','double','double','double','double','double','double','double','double','double'}, ...
@@ -147,15 +189,14 @@ matched_online = matches(:,2);
 unmatched_offline = setdiff(1:numel(offlinePulses), matched_offline);
 unmatched_online = setdiff(1:numel(onlinePulses), matched_online);
 
+%% Display results
 disp(' ')
 disp('=== Offline vs Pseudo-Online Comparison ===')
+fprintf('Offline reference: %s\n', offlineSource)
+if isfinite(processedSamples)
+    fprintf('Compared complete V3 windows: %d samples (%.3f s)\n', ...
+        processedSamples, processedSamples/fsOnline)
+end
 disp(summary_table)
 fprintf('Unmatched offline MUs: %s\n', mat2str(unmatched_offline))
 fprintf('Unmatched online  MUs: %s\n', mat2str(unmatched_online))
-
-% Results left in workspace:
-%   roa_matrix
-%   matches
-%   summary_table
-%   unmatched_offline
-%   unmatched_online

@@ -1,36 +1,44 @@
-%% =========================================================================
-% PSEUDO-ONLINE EMG DECOMPOSITION + FORCE OVERLAY
+% PSEUDO-ONLINE EMG DECOMPOSITION WITH OPTIONAL FORCE OVERLAY
 %
 % OUTPUTS saved to workspace after running:
 %   Dischargetimes_online : cell (1 x nMUs) — spike indices per MU
 %   Pulsetrain_online     : (nMUs x nSamples) — full pulse train
 %   fr_online             : cell (1 x nMUs) — instantaneous firing rates
 %   mean_fr_online        : (nMUs x 1) — mean firing rate per MU
-% =========================================================================
 
-%% =========================================================================
-%  SECTION 1: PARAMETERS — edit these before running
-% =========================================================================
-
+%% User settings
 fs         = 2000;   % EMG sampling frequency (Hz)
 fs_force   = 50;     % force sampling frequency (Hz)
+display_force = true; % true = force overlay, false = EMG/MU plots only
 badchan    = [];     % manually specify bad channels e.g. [5 23 41]
 window_sec = 0.125;  % window duration in seconds
 
-%% =========================================================================
-%  SECTION 2: VALIDATE CALIBRATION INPUTS
-% =========================================================================
+%% Load calibration file
+fprintf('Select the calibration decomposition .mat file...\n')
+[calib_fname, calib_fpath] = uigetfile('*.mat', ...
+    'Select calibration file containing recordedEMG and Calib_data');
 
-assert(exist('recordedEMG','var')==1, ...
-    'recordedEMG (calibration) not found in workspace.')
-assert(exist('Calib_data','var')==1, ...
-    'Calib_data not found in workspace. Run decompose3() first.')
+if isequal(calib_fname, 0)
+    error('No calibration file selected. Aborting.')
+end
+
+calibration = load(fullfile(calib_fpath, calib_fname), ...
+    'recordedEMG', 'Calib_data');
+
+if ~isfield(calibration, 'recordedEMG')
+    error('Variable ''recordedEMG'' not found in calibration file: %s', calib_fname)
+end
+if ~isfield(calibration, 'Calib_data')
+    error('Variable ''Calib_data'' not found in calibration file: %s', calib_fname)
+end
+
+recordedEMG = calibration.recordedEMG;
+Calib_data = calibration.Calib_data;
+fprintf('Loaded calibration file: %s\n', calib_fname)
 
 fprintf('\n=== Pseudo-Online EMG Decomposition ===\n')
 
-%% =========================================================================
-%  SECTION 3: BUILD CHANNEL MASK
-% =========================================================================
+%% Build channel mask
 
 nChan = size(recordedEMG,1);
 
@@ -49,9 +57,7 @@ nGoodChan        = sum(EMGmask == 0);
 fprintf('Channels: %d total | %d good | %d excluded\n\n', ...
     nChan, nGoodChan, numel(badchan))
 
-%% =========================================================================
-%  SECTION 4: LOAD CALIBRATION FILTERS
-% =========================================================================
+%% Load filters
 
 MUFilters = Calib_data.MUFilters;
 nMUs      = size(MUFilters, 2);
@@ -62,51 +68,51 @@ end
 
 fprintf('Calibration: %d MUs loaded from Calib_data\n\n', nMUs)
 
-%% =========================================================================
-%  SECTION 5: COMPUTE ONLINE PARAMETERS FROM CALIBRATION SIGNAL
-% =========================================================================
+%% Compute online parameters
 
 fprintf('Computing online parameters on calibration signal...\n')
 
-[extensionfactor, iReSIG, norm_fac, centroid] = getonlineparameters( ...
-    recordedEMG, EMGmask, MUFilters, fs);
+[extensionfactor, iReSIG, norm_fac, centroid] = getonlineparameters(recordedEMG, EMGmask, MUFilters, fs);
 
 % Precompute online filter
 MUfilt = MUFilters' * iReSIG;
 
 fprintf('Online parameters ready. %d MUs loaded.\n\n', nMUs)
 
-%% =========================================================================
-%  SECTION 6: LOAD NEW TRIAL VIA FILE PICKER
-% =========================================================================
+%% Load the trial via uigetfile
 
 fprintf('Select the new sample .mat file...\n')
-[fname, fpath] = uigetfile('*.mat', ...
+[fname, fpath] = uigetfile(fullfile(calib_fpath, '*.mat'), ...
     'Select new EMG trial for pseudo-online decomposition');
 
 if isequal(fname, 0)
     error('No file selected. Aborting.')
 end
 
-newdata = load(fullfile(fpath, fname), 'recordedEMG', 'recordedForce');
+if display_force
+    newdata = load(fullfile(fpath, fname), 'recordedEMG', 'recordedForce');
+else
+    newdata = load(fullfile(fpath, fname), 'recordedEMG');
+end
 
 if ~isfield(newdata, 'recordedEMG')
     error('Variable ''recordedEMG'' not found in selected file: %s', fname)
 end
 
-if ~isfield(newdata, 'recordedForce')
+if display_force && ~isfield(newdata, 'recordedForce')
     error('Variable ''recordedForce'' not found in selected file: %s', fname)
 end
 
 newEMG = newdata.recordedEMG;
 
-% Force from 2nd column
-if size(newdata.recordedForce,2) < 2
-    error('recordedForce does not contain a 2nd column in file: %s', fname)
+if display_force
+    % Force from 2nd column
+    if size(newdata.recordedForce,2) < 2
+        error('recordedForce does not contain a 2nd column in file: %s', fname)
+    end
+    force_signal = newdata.recordedForce(:,2);
+    force_signal = force_signal(:).';
 end
-
-force_signal = newdata.recordedForce(:,2);
-force_signal = force_signal(:).';   % row vector
 
 % Validate channel count matches calibration
 if size(newEMG,1) ~= size(recordedEMG,1)
@@ -130,18 +136,18 @@ end
 noise_centroids = ones(window_samples, nMUs) .* (centroid(:,1)');
 spike_centroids = ones(window_samples, nMUs) .* (centroid(:,2)');
 
-% Resample force to EMG timeline
-t_emg   = (0:total_samples-1) / fs;
-t_force = (0:length(force_signal)-1) / fs_force;
-force_signal_resampled = interp1(t_force, force_signal, t_emg, 'linear', 'extrap');
+if display_force
+    % Resample force to the EMG timeline
+    t_emg   = (0:total_samples-1) / fs;
+    t_force = (0:length(force_signal)-1) / fs_force;
+    force_signal_resampled = interp1(t_force, force_signal, t_emg, 'linear', 'extrap');
+end
 
 fprintf('Loaded: %s\n', fname)
 fprintf('Duration: %.1f sec | Windows: %d | Chunk: %d samples\n\n', ...
     total_duration, nwin, window_samples)
 
-%% =========================================================================
-%  SECTION 7: PREALLOCATE OUTPUTS
-% =========================================================================
+%% Allocate outputs
 
 % esample2: boundary samples carried between windows
 esample2 = zeros(nGoodChan * extensionfactor, extensionfactor-1);
@@ -159,21 +165,24 @@ for mu = 1:nMUs
     fr_online{mu}             = [];
 end
 
-%% =========================================================================
-%  SECTION 8: SETUP LIVE FIGURE
-% =========================================================================
+%% Setup figure
 
 colors = lines(nMUs);
 
 fig = figure('Color','w', 'Position',[50 50 1400 800], ...
     'Name', sprintf('Pseudo-Online Decomposition — %s', fname));
 
-%--- Top panel: raster plot + force overlay
+%--- Top panel: raster plot with optional force overlay
 ax_raster = subplot(2,1,1);
 
-yyaxis(ax_raster, 'left')
+if display_force
+    yyaxis(ax_raster, 'left')
+    raster_title = 'Real-Time Spike Trains + Force';
+else
+    raster_title = 'Real-Time Spike Trains';
+end
 hold(ax_raster, 'on')
-title(ax_raster, 'Real-Time Spike Trains + Force', 'FontSize',11)
+title(ax_raster, raster_title, 'FontSize',11)
 xlabel(ax_raster, 'Time (s)')
 ylabel(ax_raster, 'Motor Unit')
 xlim(ax_raster, [0 total_duration])
@@ -184,14 +193,16 @@ yticklabels(ax_raster, arrayfun(@(x) sprintf('MU%d  (0 spikes)',x), ...
 grid(ax_raster, 'on')
 set(ax_raster, 'FontSize', 9)
 
-yyaxis(ax_raster, 'right')
-ylabel(ax_raster, 'Force')
-force_min = min(force_signal_resampled);
-force_max = max(force_signal_resampled);
-if force_min == force_max
-    force_max = force_min + 1;
+if display_force
+    yyaxis(ax_raster, 'right')
+    ylabel(ax_raster, 'Force')
+    force_min = min(force_signal_resampled);
+    force_max = max(force_signal_resampled);
+    if force_min == force_max
+        force_max = force_min + 1;
+    end
+    ylim(ax_raster, [force_min force_max])
 end
-ylim(ax_raster, [force_min force_max])
 
 %--- Bottom panel: instantaneous firing rate
 ax_fr = subplot(2,1,2);
@@ -205,16 +216,20 @@ grid(ax_fr, 'on')
 set(ax_fr, 'FontSize', 9)
 
 % One handle per MU
-yyaxis(ax_raster, 'left')
+if display_force
+    yyaxis(ax_raster, 'left')
+end
 h_raster = gobjects(nMUs, 1);
 for mu = 1:nMUs
     h_raster(mu) = plot(ax_raster, nan, nan, '|', ...
         'Color', colors(mu,:), 'MarkerSize',10, 'LineWidth',1.5);
 end
 
-% Force handle on right axis
-yyaxis(ax_raster, 'right')
-h_force = plot(ax_raster, nan, nan, 'k-', 'LineWidth',1.5);
+if display_force
+    % Force handle on right axis
+    yyaxis(ax_raster, 'right')
+    h_force = plot(ax_raster, nan, nan, 'k-', 'LineWidth',1.5);
+end
 
 h_fr = gobjects(nMUs, 1);
 for mu = 1:nMUs
@@ -225,13 +240,13 @@ end
 legend(ax_fr, 'Location','eastoutside', 'FontSize',6)
 
 % Moving time indicator lines
-yyaxis(ax_raster, 'left')
+if display_force
+    yyaxis(ax_raster, 'left')
+end
 tline_raster = xline(ax_raster, 0, 'r--', 'LineWidth',1.5);
 tline_fr     = xline(ax_fr,     0, 'r--', 'LineWidth',1.5);
 
-%% =========================================================================
-%  SECTION 9: PSEUDO-ONLINE LOOP
-% =========================================================================
+%% Pseudo-online loop
 
 fprintf('Starting real-time loop on new sample...\n\n')
 
@@ -247,11 +262,8 @@ for k = 1:nwin
     EMGtmp2 = EMGtmp1(EMGmask==0, :);
 
     %--- Detect spikes in this window
-    [Pulsetrain_online(:,start_idx:end_idx), ...
-     Distime(start_idx:end_idx,:), ...
-     esample2] = getspikesonline(EMGtmp2, extensionfactor, esample2, ...
-                                 MUfilt, norm_fac, noise_centroids, ...
-                                 spike_centroids, window_samples, fs);
+    [Pulsetrain_online(:,start_idx:end_idx),Distime(start_idx:end_idx,:),esample2] = getspikesonline(EMGtmp2, extensionfactor, esample2, ...
+                                 MUfilt, norm_fac, noise_centroids,spike_centroids, window_samples, fs);
 
     %--- Accumulate spike times and firing rates
     for mu = 1:nMUs
@@ -267,7 +279,9 @@ for k = 1:nwin
     end
 
     %--- Update raster plot
-    yyaxis(ax_raster, 'left')
+    if display_force
+        yyaxis(ax_raster, 'left')
+    end
     for mu = 1:nMUs
         if ~isempty(Dischargetimes_online{mu})
             spikes_t = Dischargetimes_online{mu} / fs;
@@ -282,12 +296,14 @@ for k = 1:nwin
         sprintf('MU%d  (%d spikes)', mu, length(Dischargetimes_online{mu})), ...
         1:nMUs, 'UniformOutput', false))
 
-    %--- Update force trace on right axis
-    yyaxis(ax_raster, 'right')
-    force_t = (1:end_idx) / fs;
-    set(h_force, ...
-        'XData', force_t, ...
-        'YData', force_signal_resampled(1:end_idx))
+    if display_force
+        %--- Update force trace on right axis
+        yyaxis(ax_raster, 'right')
+        force_t = (1:end_idx) / fs;
+        set(h_force, ...
+            'XData', force_t, ...
+            'YData', force_signal_resampled(1:end_idx))
+    end
 
     %--- Update firing rate plot
     for mu = 1:nMUs
@@ -300,24 +316,26 @@ for k = 1:nwin
     end
 
     %--- Advance time indicator
-    yyaxis(ax_raster, 'left')
+    if display_force
+        yyaxis(ax_raster, 'left')
+    end
     set(tline_raster, 'Value', current_time)
     set(tline_fr,     'Value', current_time)
 
     %--- Update title
-    title(ax_raster, sprintf('Real-Time Spike Trains + Force  |  t = %.2f / %.2f sec  |  %s', ...
-        current_time, total_duration, fname), 'FontSize',10)
+    title(ax_raster, sprintf('%s  |  t = %.2f / %.2f sec  |  %s', ...
+        raster_title, current_time, total_duration, fname), 'FontSize',10)
 
     %--- Refresh display
     drawnow limitrate
 
 end
 
-%% =========================================================================
-%  SECTION 10: FINALIZE AND SUMMARIZE
-% =========================================================================
+%% Produce summary
 
-yyaxis(ax_raster, 'left')
+if display_force
+    yyaxis(ax_raster, 'left')
+end
 title(ax_raster, sprintf('Done  |  %d MUs  |  %.1f sec  |  %s', ...
     nMUs, total_duration, fname), 'FontSize',11)
 
@@ -338,8 +356,3 @@ for mu = 1:nMUs
         mu, length(Dischargetimes_online{mu}), mean_fr_online(mu))
 end
 
-fprintf('\nOutputs in workspace:\n')
-fprintf('  Dischargetimes_online — spike indices per MU\n')
-fprintf('  Pulsetrain_online     — full pulse train\n')
-fprintf('  fr_online             — instantaneous firing rates\n')
-fprintf('  mean_fr_online        — mean firing rate per MU\n\n')
