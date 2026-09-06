@@ -1,6 +1,6 @@
 
-function out = onlineForceStreamV2(signal,parameters,cfg)
-%ONLINEFORCESTREAMV2 V2 online MU decomposition with live force.
+function out = online_decompositionV3(signal,parameters,cfg)
+% online_decompositionV3 online MU decomposition with live force.
 %
 %   out = onlineForceStreamV2(signal,parameters,cfg)
 %
@@ -8,7 +8,7 @@ function out = onlineForceStreamV2(signal,parameters,cfg)
 
 forceCfg = cfg;
 
-state = initialize_force_state(forceCfg);
+forceState = initialize_force_acquisition(forceCfg); % initialise force calibrations
 
 forceTimer = timer( ...
     'ExecutionMode','fixedSpacing', ...
@@ -16,70 +16,70 @@ forceTimer = timer( ...
     'BusyMode','drop', ...
     'TimerFcn',@read_force_callback, ...
     'ErrorFcn',@force_timer_error);
-state.timer = forceTimer;
+forceState.timer = forceTimer;
 cleanupObj = onCleanup(@() cleanup_force_resources( ...
-    forceTimer,state.serialObj,state.fig));
-state.sessionClock = tic;
+    forceTimer,forceState.serialObj,forceState.fig));
+forceState.sessionClock = tic;
 start(forceTimer);
 
 % Run V2 decomposition while the force timer reads Arduino samples.
-sharedUI = struct('fig',state.fig, ...
-    'axRaster',state.controls.axRaster, ...
+sharedUI = struct('fig',forceState.fig, ...
+    'axRaster',forceState.controls.axRaster, ...
     'pollForce',@read_force_callback);
-out = online_decomp_signal_force(signal,parameters,cfg,sharedUI);
+out = onlineDecompositionStream(signal,parameters,cfg,sharedUI);
 
 stop(forceTimer);
-out.online.force = export_force_state(state,forceCfg);
+out.online.force = export_force_state(forceState,forceCfg);
 
     function read_force_callback(~, ~)
-        if ~ishandle(state.fig)
-            stop(state.timer);
+        if ~ishandle(forceState.fig)
+            stop(forceState.timer);
             return;
         end
 
-        c = state.controls;
-        if c.btnClose.Value
-            setappdata(state.fig, 'forceStopRequested', true);
-            stop(state.timer);
+        c = forceState.controls;
+        if c.btnClose.Value % check whether stop requested
+            setappdata(forceState.fig, 'forceStopRequested', true);
+            stop(forceState.timer);
             return;
         end
 
         update_sign_label();
 
-        while state.serialObj.NumBytesAvailable > 0
-            serialLine = readline(state.serialObj);
+        while forceState.serialObj.NumBytesAvailable > 0 % read arduino data
+            serialLine = readline(forceState.serialObj);
             sample = sscanf(char(serialLine), '%f,%f,%f,%f');
             if numel(sample) < 4
                 continue;
             end
 
             raw = reshape(sample(2:4), 1, []);
-            raw(state.reverseStates) = -raw(state.reverseStates);
+            raw(forceState.reverseStates) = -raw(forceState.reverseStates);
             if c.forceSignCheckbox.Value
                 raw = -raw;
             end
-            state.lastRawSample = raw;
+            forceState.lastRawSample = raw;
 
-            calibrated = (raw - state.zeroValues) ./ ...
-                state.calibrationFactors * 100;
-            if state.nSamples > 0
+            calibrated = (raw - forceState.zeroValues) ./ ...
+                forceState.calibrationFactors * 100;
+            if forceState.nSamples > 0
                 calibrated = 0.3 * calibrated + ...
-                    0.7 * state.forceData(state.nSamples, :);
+                    0.7 * forceState.forceData(forceState.nSamples, :);
             end
 
-            if state.nSamples < size(state.forceData, 1)
-                state.nSamples = state.nSamples + 1;
-                state.forceData(state.nSamples, :) = calibrated;
-                state.arduinoTime(state.nSamples) = sample(1);
-                state.sessionTime(state.nSamples) = toc(state.sessionClock);
-            elseif ~state.bufferWarningShown
+            if forceState.nSamples < size(forceState.forceData, 1)
+                forceState.nSamples = forceState.nSamples + 1;
+                forceState.forceData(forceState.nSamples, :) = calibrated;
+                forceState.arduinoTime(forceState.nSamples) = sample(1);
+                forceState.sessionTime(forceState.nSamples) = toc(forceState.sessionClock);
+            elseif ~forceState.bufferWarningShown
                 warning('Force buffer is full; additional samples are not stored.');
-                state.bufferWarningShown = true;
+                forceState.bufferWarningShown = true;
             end
         end
 
         if c.btnZero.Value
-            state.zeroValues = state.lastRawSample;
+            forceState.zeroValues = forceState.lastRawSample;
             c.btnZero.Value = false;
             disp('Force channels zeroed.');
         end
@@ -92,29 +92,29 @@ out.online.force = export_force_state(state,forceCfg);
             c.ax.Color = [1 1 1];
         end
 
-        if state.nSamples - state.lastPlotSample >= state.plotInterval
+        if forceState.nSamples - forceState.lastPlotSample >= forceState.plotInterval
             target = str2double(c.forceTargetBox.String);
             if isnan(target)
                 target = 100;
             end
-            update_force_plot(c.ax, state.lines, state.forceData, ...
+            update_force_plot(c.ax, forceState.lines, forceState.forceData, ...
                 forceCfg.forceFs, forceCfg.forceDisplayTimeSec, ...
-                forceCfg.forceBufferTimeSec, target, state.nSamples);
-            state.lastPlotSample = state.nSamples;
+                forceCfg.forceBufferTimeSec, target, forceState.nSamples);
+            forceState.lastPlotSample = forceState.nSamples;
         end
     end
 
     function update_sign_label()
-        currentSignState = state.controls.forceSignCheckbox.Value;
-        if currentSignState == state.lastSignState
+        currentSignState = forceState.controls.forceSignCheckbox.Value;
+        if currentSignState == forceState.lastSignState
             return;
         end
-        state.lastSignState = currentSignState;
+        forceState.lastSignState = currentSignState;
         if currentSignState
-            state.controls.forceSignLabel.String = sprintf('%s\n%s', ...
+            forceState.controls.forceSignLabel.String = sprintf('%s\n%s', ...
                 '(+): Extension', '(-): Flexion ');
         else
-            state.controls.forceSignLabel.String = sprintf('%s\n%s', ...
+            forceState.controls.forceSignLabel.String = sprintf('%s\n%s', ...
                 '(+): Flexion', '(-): Extension ');
         end
     end
@@ -125,28 +125,12 @@ out.online.force = export_force_state(state,forceCfg);
 
 end
 
-function state = initialize_force_state(cfg)
+
+%% Helper to init force acquisition
+
+function forceState = initialize_force_acquisition(cfg)
 [calibrationFactors, zeroValues, reverseStates] = load_force_calibration(cfg);
 [fig, controls] = setup_force_figure();
-
-% Remove serial objects left behind by an earlier failed/stopped run.
-staleSerial = instrfindall('Port', cfg.forcePort);
-for serialIdx = 1:numel(staleSerial)
-    try
-        if strcmpi(staleSerial(serialIdx).Status, 'open')
-            fclose(staleSerial(serialIdx));
-        end
-        delete(staleSerial(serialIdx));
-    catch
-    end
-end
-try
-    staleSerialport = serialportfind('Port', cfg.forcePort);
-    if ~isempty(staleSerialport)
-        delete(staleSerialport);
-    end
-catch
-end
 
 try
     serialObj = serialport(cfg.forcePort, 115200, 'Timeout', 2);
@@ -169,34 +153,36 @@ end
 
 fprintf('Arduino force stream connected on %s\n', cfg.forcePort);
 maxSamples = round(cfg.forceFs * cfg.forceMaxDurationSec);
-state = struct();
-state.fig = fig;
-state.controls = controls;
-state.serialObj = serialObj;
-state.timer = [];
-state.sessionClock = [];
-state.calibrationFactors = reshape(calibrationFactors, 1, 3);
-state.zeroValues = reshape(zeroValues, 1, 3);
-state.reverseStates = logical(reshape(reverseStates, 1, 3));
-state.forceData = zeros(maxSamples, 3);
-state.arduinoTime = zeros(maxSamples, 1);
-state.sessionTime = zeros(maxSamples, 1);
-state.nSamples = 0;
-state.lastRawSample = zeros(1, 3);
-state.lastSignState = controls.forceSignCheckbox.Value;
-state.plotInterval = max(1, round(cfg.forceFs / cfg.forcePlotRateHz));
-state.lastPlotSample = 0;
-state.lines = initialize_force_lines(controls.ax);
-state.bufferWarningShown = false;
+forceState = struct();
+forceState.fig = fig;
+forceState.controls = controls;
+forceState.serialObj = serialObj;
+forceState.timer = [];
+forceState.sessionClock = [];
+forceState.calibrationFactors = reshape(calibrationFactors, 1, 3);
+forceState.zeroValues = reshape(zeroValues, 1, 3);
+forceState.reverseStates = logical(reshape(reverseStates, 1, 3));
+forceState.forceData = zeros(maxSamples, 3);
+forceState.arduinoTime = zeros(maxSamples, 1);
+forceState.sessionTime = zeros(maxSamples, 1);
+forceState.nSamples = 0;
+forceState.lastRawSample = zeros(1, 3);
+forceState.lastSignState = controls.forceSignCheckbox.Value;
+forceState.plotInterval = max(1, round(cfg.forceFs / cfg.forcePlotRateHz));
+forceState.lastPlotSample = 0;
+forceState.lines = initialize_force_lines(controls.ax);
+forceState.bufferWarningShown = false;
 setappdata(fig, 'forceStopRequested', false);
 end
 
+
+%% helper to load force calibrations
 function [factors, zeroValues, reverseStates] = load_force_calibration(cfg)
 factors = cfg.forceDefaultCalibrationFactors;
 zeroValues = cfg.forceDefaultZeroValues;
 reverseStates = cfg.forceDefaultReverseStates;
 calibrationFile = cfg.forceCalibrationFile;
-
+% if no calibration file in config opens uigetfile 
 if isempty(calibrationFile) && cfg.forcePromptCalibration
     [name, folder] = uigetfile('*.mat', ...
         'Select force calibration file, or press Cancel to use defaults');
@@ -210,9 +196,8 @@ if isempty(calibrationFile)
     return;
 end
 
-data = load(calibrationFile, ...
-    'calibrationFactors', 'zeroValues', 'reverseStates');
-required = {'calibrationFactors', 'zeroValues', 'reverseStates'};
+data = load(calibrationFile,'calibrationFactors', 'zeroValues', 'reverseStates');
+required = {'calibrationFactors', 'zeroValues', 'reverseStates'}; % validation 
 for i = 1:numel(required)
     if ~isfield(data, required{i})
         error('Calibration file is missing %s.', required{i});
@@ -221,19 +206,22 @@ end
 factors = data.calibrationFactors;
 zeroValues = data.zeroValues;
 reverseStates = data.reverseStates;
-fprintf('Loaded force calibration: %s\n', calibrationFile);
+fprintf('Loaded force calibration values: %s\n', calibrationFile);
 end
 
-function out = export_force_state(state, cfg)
-n = state.nSamples;
+
+%% Helper to use force states
+
+function out = export_force_state(forceState, cfg)
+n = forceState.nSamples;
 out = struct();
-out.data = state.forceData(1:n, :);
-out.arduinoTime = state.arduinoTime(1:n);
-out.sessionTime = state.sessionTime(1:n);
+out.data = forceState.forceData(1:n, :);
+out.arduinoTime = forceState.arduinoTime(1:n);
+out.sessionTime = forceState.sessionTime(1:n);
 out.fs = cfg.forceFs;
-out.calibrationFactors = state.calibrationFactors;
-out.zeroValues = state.zeroValues;
-out.reverseStates = state.reverseStates;
+out.calibrationFactors = forceState.calibrationFactors;
+out.zeroValues = forceState.zeroValues;
+out.reverseStates = forceState.reverseStates;
 end
 
 function cleanup_force_resources(forceTimer, serialObj, fig)
@@ -257,6 +245,9 @@ try
 catch
 end
 end
+
+
+%% Helper to create the figure 
 
 function [fig, c] = setup_force_figure()
 fig = figure('Name', 'Force and Real-Time Spike Trains', ...
@@ -342,6 +333,8 @@ uicontrol(parent, 'Style', 'text', 'String', label, ...
     'BackgroundColor', get(parent,'BackgroundColor'));
 end
 
+
+%% Init 3 channel 
 function forceLines = initialize_force_lines(ax)
 colors = lines(3);
 forceLines = gobjects(3, 1);
@@ -349,9 +342,12 @@ for i = 1:3
     forceLines(i) = animatedline(ax, 'Color', colors(i,:), ...
         'LineWidth', 1.5);
 end
-legend(ax, {'Thumb','Index','Middle finger'}, ...
+legend(ax, {'Thumb','Index finger','Middle finger'}, ...
     'Location', 'northwest');
 end
+
+
+%% Helper to refresh force plot
 
 function update_force_plot(ax, forceLines, forceData, fsForce, ...
         displayTime, bufferTime, forceTarget, currentIndex)

@@ -1,76 +1,93 @@
-function out = online_decomp(Calib_data, calibEMG_full, fs, badchan, userCfg)
-% RUN_REALTIME_NOVECENTO_FROM_CALIB
-% -------------------------------------------------------------------------
-% True real-time online EMG decomposition using Novecento+ streaming and
-% motor-unit filters obtained from offline calibration.
-%
-% This runner is intended for continuous live use:
-%   1. build online parameters from calibration EMG + MU filters
-%   2. connect to Novecento+
-%   3. stream one block at a time from one or more inputs
-%   4. detect MU discharges online with getspikesonline
-%   5. update raster/firing-rate plots live
-%   6. stop cleanly when the figure is closed or duration is reached
+
+function out = onlineDecompositionStream(signal,parameters,cfg,sharedUI)
+%onlineDecompositionStream Online decomposition pipeline.
 %
 % INPUTS
-%   Calib_data    : struct returned by decompose3
-%   calibEMG_full : calibration EMG (channels x samples)
-%   fs            : calibration sampling rate
-%   badchan       : bad channels within the selected calibration channels
-%   userCfg       : optional config overrides
+%   signal      : MUedit signal structure containing calibration EMG,
+%                 final pulse trains, discharge times, and EMG mask.
+%   parameters  : MUedit decomposition-parameter structure.
+%   cfg         : complete Novecento, streaming, and display configuration.
 %
 % OUTPUT
-%   out : struct containing configuration, calibration parameters,
-%         accumulated online outputs, and session timing info
+%   out         : online EMG, pulse trains, discharge times, firing rates,
+%                 session timing, and Novecento configuration.
+%
+% Final filters are read from signal.RefinedMUFilters when available.
+% Otherwise, the original signal.MUFilters matrix is used directly.
 
-%% 1) Configuration merge and input validation
-
-cfg = default_cfg();
-if nargin < 5 || isempty(userCfg)
-    userCfg = struct;
-end
-cfg = merge_structs(cfg, userCfg);
-
-if nargin < 4 || isempty(badchan)
-    badchan = [];
+%% 1) Read and validate the MUedit structures
+if nargin < 3 || ~isstruct(cfg) || isempty(cfg)
+    error('A complete cfg structure must be supplied.');
 end
 
-validate_inputs(Calib_data, calibEMG_full, fs, badchan, cfg);
+validate_signal_inputs(signal,parameters,cfg);
 
-% Select calibration channels if full array was provided.
+calibEMG_full = double(signal.data);
+fs = signal.fsamp;
+fullMask = signal.EMGmask{1}(:) ~= 0; % false = good, true = bad
+
+% Select the same electrode rows that will be streamed online.
 if size(calibEMG_full,1) == numel(cfg.calibChannels)
     calibEMG = calibEMG_full;
+    EMGmask = fullMask;
 else
-    calibEMG = calibEMG_full(cfg.calibChannels, :);
+    calibEMG = calibEMG_full(cfg.calibChannels,:);
+    EMGmask = fullMask(cfg.calibChannels);
 end
 
-% Build bad-channel mask in calibration channel space (0=good, 1=bad).
-nCalibChan = size(calibEMG, 1);
-EMGmask = zeros(nCalibChan, 1);
-if ~isempty(badchan)
-    EMGmask(badchan) = 1;
+nCalibChan = size(calibEMG,1);
+nGood = sum(~EMGmask);
+if nGood < 1
+    error('The EMG mask excludes every calibration channel.');
 end
 
-MUFilters = Calib_data.MUFilters;
-nMU = size(MUFilters, 2);
-nGood = sum(EMGmask == 0);
+finalPulseTrain = signal.Pulsetrain{1};
+nFinalMU = size(finalPulseTrain,1);
 
-fprintf('\n=== Preparing Noveceto+ real-time decomposition ===\n');
-fprintf('Calibration channels: %d\n', nCalibChan);
-fprintf('Good channels: %d\n', nGood);
-fprintf('Bad channels: %d\n', sum(EMGmask));
-fprintf('Motor units: %d\n', nMU);
+% MU filters are always rebuilt from calibration EMG and discharge times.
+% getMUfilters uses a fixed target of 1000 extended channels.
+onlineNbextchan = 1000;
+extensionfactor = max(round(onlineNbextchan/nGood),1);
+expectedFilterRows = nGood*extensionfactor;
 
-[extensionfactor, iReSIG, normval, centroid] = ...
-    getonlineparameters(calibEMG, EMGmask, MUFilters, fs);
+Distime = signal.Dischargetimes;
+if iscell(Distime) && numel(Distime) == 1 && iscell(Distime{1})
+    Distime = Distime{1};
+elseif iscell(Distime) && size(Distime,1) >= 1
+    Distime = Distime(1,:);
+end
+if ~iscell(Distime) || numel(Distime) ~= nFinalMU
+    error(['Cannot rebuild MU filters: signal.Dischargetimes must ' ...
+        'contain one cell per motor unit.']);
+end
 
-% Precompute online MU projection filters.
+MUFilters = double(getMUfilters(calibEMG,EMGmask,Distime));
+if ~isequal(size(MUFilters),[expectedFilterRows nFinalMU])
+    error(['Rebuilt MU filters have size %s, but %s is required.'], ...
+        mat2str(size(MUFilters)),mat2str([expectedFilterRows nFinalMU]));
+end
+if ~all(isfinite(MUFilters),'all') || any(vecnorm(MUFilters) == 0)
+    error('One or more rebuilt MU filters are invalid.');
+end
+nMU = nFinalMU;
+filterMessage = 'Rebuilt MU filter matrix using getMUfilters';
+
+fprintf('\n=== Preparing Novecento+ real-time decomposition ===\n');
+fprintf('Calibration channels: %d\n',nCalibChan);
+fprintf('Good channels: %d\n',nGood);
+fprintf('Bad channels: %d\n',sum(EMGmask));
+fprintf('Online motor-unit filters: %d\n',nMU);
+fprintf('%s: %d x %d\n',filterMessage, ...
+    size(MUFilters,1),size(MUFilters,2));
+
+[extensionfactor,iReSIG,normval,centroid] = prepare_online_parameters( ...
+    calibEMG,EMGmask,MUFilters,fs,onlineNbextchan);
 MUfilt = MUFilters' * iReSIG;
 
 %% 2) Novecento connection and online stream geometry
 dev = novecento_connect(cfg);
 % Ensure hardware is stopped/disconnected on any exit path.
-cleanupObj = onCleanup(@() novecento_disconnect(dev)); %#ok<NASGU>
+cleanupObj = onCleanup(@() novecento_disconnect(dev));
 
 activeInputs = cfg.activeInputs(:)';
 fsVals = dev.fsInput(activeInputs);
@@ -110,7 +127,13 @@ spike_centroids = ones(nsamp, nMU) .* centroid(:,2)';
 esample2 = zeros(nGood * extensionfactor, extensionfactor - 1);
 
 %% 3) Figure/state initialization and online accumulators
-[fig, plotState] = init_live_figure(nMU, cfg);
+[fig, plotState] = init_live_figure(nMU, cfg, sharedUI);
+if isfield(cfg,'showQuadrant') && cfg.showQuadrant
+    quadrantState = ispin_quadrant_feedback( ...
+        'init',nMU,fs_online,windowSec,cfg);
+else
+    quadrantState = struct('enabled',false);
+end
 
 Distime_chunks = {};
 Pulsetrain_chunks = {};
@@ -139,6 +162,17 @@ fprintf('Close the figure window to stop the session.\n\n');
 
 %% 4) Real-time processing loop
 while ishandle(fig)
+    if ~ishandle(sharedUI.fig)
+        break;
+    end
+
+    % Explicitly service the Arduino here. Novecento TCP reads are
+    % blocking, so relying only on a MATLAB timer can starve force reads.
+    sharedUI.pollForce([],[]);
+
+    if getappdata(sharedUI.fig,'forceStopRequested')
+        break;
+    end
     if getappdata(fig, 'stopRequested')
         break;
     end
@@ -172,7 +206,7 @@ while ishandle(fig)
         % Convert per-window spike indices to global sample indices.
         new_spikes = find(distChunk(:,mu)) + sampleCursor;
         if ~isempty(new_spikes)
-            Dischargetimes_online{mu} = [Dischargetimes_online{mu}; new_spikes(:)]; %#ok<AGROW>
+            Dischargetimes_online{mu} = [Dischargetimes_online{mu}; new_spikes(:)];
         end
 
         % Instantaneous firing rate from inter-discharge intervals.
@@ -187,6 +221,8 @@ while ishandle(fig)
     currentTime = sampleCursor / fs_online;
 
     update_live_plot(fig, plotState, Dischargetimes_online, fr_online, currentTime, cfg, fs_online);
+    quadrantState = ispin_quadrant_feedback( ...
+        'update',quadrantState,distChunk,currentTime);
 
     if cfg.printEveryNWindows > 0 && mod(windowCount, cfg.printEveryNWindows) == 0
         spikesThisWin = sum(distChunk, 1);
@@ -221,14 +257,6 @@ out.windowSec = windowSec;
 out.nWin = windowCount;
 out.elapsedSec = elapsed;
 
-out.calibration = struct();
-out.calibration.MUFilters = MUFilters;
-out.calibration.EMGmask = EMGmask;
-out.calibration.extensionfactor = extensionfactor;
-out.calibration.iReSIG = iReSIG;
-out.calibration.norm = normval;
-out.calibration.centroid = centroid;
-
 out.online = struct();
 out.online.EMG = EMG_online;
 out.online.Pulsetrain = Pulsetrain_online;
@@ -236,6 +264,7 @@ out.online.Distime = Distime;
 out.online.Dischargetimes = Dischargetimes_online;
 out.online.fr = fr_online;
 out.online.mean_fr = mean_fr_online;
+out.online.quadrant = ispin_quadrant_feedback('export',quadrantState);
 if isempty(Pulsetrain_online)
     out.online.Time = zeros(1,0);
 else
@@ -252,64 +281,144 @@ fprintf('Samples decoded: %d\n', sampleCursor);
 end
 
 %% Input validation helpers
-function validate_inputs(Calib_data, calibEMG_full, fs, badchan, cfg)
-if nargin < 5
-    error('Missing inputs.');
+function validate_signal_inputs(signal,parameters,cfg)
+if nargin < 3
+    error('signal, parameters, and cfg are required.');
+end
+if ~isstruct(signal) || isempty(signal)
+    error('signal must be a non-empty structure.');
+end
+if ~isstruct(parameters) || isempty(parameters)
+    error('parameters must be a non-empty structure.');
 end
 
-if isempty(Calib_data) || ~isstruct(Calib_data)
-    error('Calib_data must be a non-empty struct.');
+required = {'data','fsamp','Pulsetrain','Dischargetimes','EMGmask'};
+for fieldIdx = 1:numel(required)
+    if ~isfield(signal,required{fieldIdx})
+        error('signal.%s is missing.',required{fieldIdx});
+    end
 end
-
-if ~isfield(Calib_data, 'MUFilters') || isempty(Calib_data.MUFilters)
-    error('Calib_data.MUFilters is missing or empty.');
+if ~isnumeric(signal.data) || ~ismatrix(signal.data) || isempty(signal.data)
+    error('signal.data must be a non-empty channels-by-samples matrix.');
 end
-
-if isempty(calibEMG_full) || ndims(calibEMG_full) ~= 2
-    error('calibEMG_full must be channels x samples.');
+if ~isscalar(signal.fsamp) || ~isfinite(signal.fsamp) || signal.fsamp <= 0
+    error('signal.fsamp must be a positive scalar.');
 end
-
-if isempty(fs) || ~isscalar(fs) || fs <= 0
-    error('fs must be a positive scalar.');
+if ~iscell(signal.Pulsetrain) || isempty(signal.Pulsetrain) || ...
+        isempty(signal.Pulsetrain{1})
+    error('signal.Pulsetrain{1} is missing or empty.');
 end
-
-if isempty(cfg.calibChannels)
-    error('cfg.calibChannels must be specified.');
+if ~iscell(signal.Dischargetimes)
+    error('signal.Dischargetimes must be a cell array.');
 end
-
-if isempty(cfg.emgChannels)
-    error('cfg.emgChannels must be specified.');
+if ~iscell(signal.EMGmask) || isempty(signal.EMGmask)
+    error('signal.EMGmask must be a non-empty cell array.');
 end
-
-if ~isfield(cfg, 'activeInputs') || isempty(cfg.activeInputs)
-    error('cfg.activeInputs must be specified.');
+if numel(signal.EMGmask{1}) ~= size(signal.data,1)
+    error('signal.EMGmask{1} does not match the EMG channel count.');
 end
-
+if size(signal.Pulsetrain{1},2) ~= size(signal.data,2)
+    error('The calibration EMG and pulse trains have different lengths.');
+end
+if numel(signal.Dischargetimes) ~= size(signal.Pulsetrain{1},1)
+    error('Discharge-time and pulse-train motor-unit counts differ.');
+end
+if isempty(cfg.activeInputs) || isempty(cfg.calibChannels) || ...
+        isempty(cfg.emgChannels)
+    error('Active inputs, calibration channels, and online EMG channels are required.');
+end
 if numel(cfg.calibChannels) ~= numel(cfg.emgChannels)
     error('cfg.calibChannels and cfg.emgChannels must have the same length.');
 end
-
-if size(calibEMG_full,1) < max(cfg.calibChannels) && size(calibEMG_full,1) ~= numel(cfg.calibChannels)
-    error('calibEMG_full does not contain cfg.calibChannels.');
+if size(signal.data,1) < max(cfg.calibChannels) && ...
+        size(signal.data,1) ~= numel(cfg.calibChannels)
+    error('signal.data does not contain cfg.calibChannels.');
 end
 
-if ~isempty(badchan) && max(badchan) > numel(cfg.calibChannels)
-    error('badchan refers outside the selected calibration channels.');
+requiredCfg = {'WiFi','TCPPort','IP_eth','IP_wifi','activeInputs', ...
+    'calibChannels','emgChannels','onlineDurationSec', ...
+    'visibleWindowSec','windowBaseCols','recordEMG', ...
+    'printEveryNWindows','showLegend','frYLim','queryMetadata', ...
+    'socketTimeoutSec','hardwareQueryRetries', ...
+    'hardwareQueryPauseSec','forceInputChannelCounts','GainFactor', ...
+    'FSelAux','AnOutINSource','AnOutChan','AnOutGain','IN_Active', ...
+    'Mode','Gain','HRES','HPF','FsampCode'};
+for fieldIdx = 1:numel(requiredCfg)
+    if ~isfield(cfg,requiredCfg{fieldIdx})
+        error('cfg.%s is missing.',requiredCfg{fieldIdx});
+    end
 end
+end
+
+%% Prepare covariance, normalization, and classification parameters
+function [exFactor,iReSIG,normval,centroid] = prepare_online_parameters( ...
+        EMG,EMGmask,MUFilters,fsamp,nbextchan)
+
+EMG = EMG(~EMGmask,:);
+exFactor = round(nbextchan/size(EMG,1));
+eSIG = demean(extend(EMG,exFactor));
+ReSIG = eSIG*eSIG'/size(eSIG,2);
+iReSIG = pinv(ReSIG);
+
+nMU = size(MUFilters,2);
+normval = zeros(1,nMU);
+centroid = zeros(nMU,2);
+
+for mu = 1:nMU
+    pulseTrain = (MUFilters(:,mu)'*iReSIG)*eSIG;
+    pulseTrain = pulseTrain(1:size(EMG,2));
+    pulseTrain = pulseTrain.*abs(pulseTrain);
+
+    [~,peaks] = findpeaks(pulseTrain, ...
+        'MinPeakDistance',round(fsamp*0.02));
+    if numel(peaks) < 3
+        error('MU %d produced fewer than three calibration peaks.',mu);
+    end
+
+    [labels,centers] = kmeans(pulseTrain(peaks)',2);
+    [~,spikeClass] = max(centers);
+    spikePeaks = peaks(labels == spikeClass);
+    noisePeaks = peaks(labels ~= spikeClass);
+
+    outlierLimit = mean(pulseTrain(spikePeaks)) + ...
+        3*std(pulseTrain(spikePeaks));
+    spikePeaks(pulseTrain(spikePeaks) > outlierLimit) = [];
+    if isempty(spikePeaks) || isempty(noisePeaks)
+        error('MU %d could not form separate spike and noise classes.',mu);
+    end
+
+    strongestSpikeCount = min(10,numel(spikePeaks));
+    normval(mu) = mean(maxk(pulseTrain(spikePeaks), ...
+        strongestSpikeCount));
+    if ~isfinite(normval(mu)) || normval(mu) <= 0
+        error('MU %d produced an invalid pulse-train normalization.',mu);
+    end
+
+    % Preserve the established classifier scaling: the projection itself
+    % uses the spike normalization above, while cluster centroids use the
+    % ten strongest preliminary peaks from both classes.
+    strongestPeakCount = min(10,numel(peaks));
+    classifierScale = mean(maxk(pulseTrain(peaks),strongestPeakCount));
+    normalizedPulseTrain = pulseTrain/classifierScale;
+    centroid(mu,1) = mean(normalizedPulseTrain(noisePeaks));
+    centroid(mu,2) = mean(normalizedPulseTrain(spikePeaks));
+end
+
 end
 
 %% Plot initialization and live update helpers
-function [fig, plotState] = init_live_figure(nMU, cfg)
+function [fig, plotState] = init_live_figure(nMU, cfg, sharedUI)
 colors = lines(nMU);
 
 fig = figure( ...
     'Color', 'w', ...
-    'Position', [60 60 1400 820], ...
-    'Name', 'Novecento Real-Time Decomposition', ...
+    'Position', [180 100 1050 650], ...
+    'Name', 'Real-Time Discharge Rate', ...
     'CloseRequestFcn', @stop_figure);
 setappdata(fig, 'stopRequested', false);
 
-axRaster = subplot(2,1,1, 'Parent', fig);
+axRaster = sharedUI.axRaster;
+cla(axRaster);
 hold(axRaster, 'on');
 grid(axRaster, 'on');
 title(axRaster, 'Live Spike Trains', 'FontSize', 11);
@@ -319,7 +428,8 @@ ylim(axRaster, [0 nMU + 1]);
 yticks(axRaster, 1:nMU);
 yticklabels(axRaster, arrayfun(@(x) sprintf('MU%d  (0 spikes)', x), 1:nMU, 'UniformOutput', false));
 
-axFr = subplot(2,1,2, 'Parent', fig);
+axFr = axes('Parent',fig,'Units','normalized', ...
+    'Position',[0.08 0.12 0.82 0.80]);
 hold(axFr, 'on');
 grid(axFr, 'on');
 title(axFr, 'Instantaneous Firing Rate (Hz)', 'FontSize', 11);
@@ -348,7 +458,7 @@ uicontrol(fig, 'Style', 'pushbutton', ...
     'String', 'Stop', ...
     'Units', 'pixels', ...
     'Position', [20 20 80 28], ...
-    'Callback', @(src, evt) request_stop(fig)); %#ok<NASGU>
+    'Callback', @(~,~) request_stop(fig));
 
 plotState = struct();
 plotState.axRaster = axRaster;
@@ -396,7 +506,7 @@ drawnow limitrate;
 end
 
 %% Utility helpers
-function out = concat_chunks(chunks, nRows)
+function out = concat_chunks(chunks,~)
 if isempty(chunks)
     out = [];
     return;
@@ -420,72 +530,6 @@ end
 function stop_figure(fig, ~)
 setappdata(fig, 'stopRequested', true);
 delete(fig);
-end
-
-%% Default configuration and override merge
-function cfg = default_cfg()
-cfg = struct();
-
-cfg.WiFi = 0;
-cfg.TCPPort = 23456;
-cfg.IP_eth = '169.254.1.10';
-cfg.IP_wifi = '192.168.1.1';
-
-cfg.activeInputs = [1 2];
-cfg.calibChannels = 1:128;
-% Two 64-electrode Novecento probes are streamed as 70 rows each:
-% keep rows 1:64 from input 1 and rows 71:134 from input 2.
-cfg.emgChannels = [1:64 71:134];
-
-cfg.onlineDurationSec = inf;
-cfg.visibleWindowSec = 20;
-cfg.windowBaseCols = 64;
-cfg.recordEMG = true;
-cfg.printEveryNWindows = 10;
-cfg.showLegend = true;
-cfg.frYLim = 60;
-cfg.queryMetadata = false;
-cfg.socketTimeoutSec = 100;
-cfg.hardwareQueryRetries = 3;
-cfg.hardwareQueryPauseSec = 0.2;
-cfg.forceInputChannelCounts = [];
-
-cfg.GainFactor = 0.2861;
-cfg.FSelAux = 2;
-cfg.AnOutINSource = 0;
-cfg.AnOutChan = 1;
-cfg.AnOutGain = bin2dec('00000000');
-
-cfg.IN_Active = zeros(10,1);
-cfg.Mode = zeros(10,1);
-cfg.Gain = zeros(10,1);
-cfg.HRES = zeros(10,1);
-cfg.HPF = zeros(10,1);
-cfg.FsampCode = zeros(10,1);
-
-cfg.IN_Active(1) = 1;
-cfg.Mode(1) = 0;
-cfg.Gain(1) = 1;
-cfg.HRES(1) = 1;
-cfg.HPF(1) = 1;
-cfg.FsampCode(1) = 1;
-cfg.IN_Active(2) = 1;
-cfg.Mode(2) = 0;
-cfg.Gain(2) = 1;
-cfg.HRES(2) = 1;
-cfg.HPF(2) = 1;
-cfg.FsampCode(2) = 1;
-end
-
-function S = merge_structs(S, U)
-if isempty(U)
-    return;
-end
-
-f = fieldnames(U);
-for i = 1:numel(f)
-    S.(f{i}) = U.(f{i});
-end
 end
 
 %% Novecento hardware connection/configuration
@@ -553,7 +597,7 @@ if cfg.queryMetadata
         disp('Firmware info:');
         disp(char(fw(2:end)));
     catch ME
-        warning('Firmware query skipped: %s', ME.message);
+        warning(ME.identifier,'Firmware query skipped: %s',ME.message);
         try
             flush(tcpSocket);
         catch
@@ -567,7 +611,7 @@ if cfg.queryMetadata
         bat = read(tcpSocket, 20, 'uint8')';
         fprintf('Battery level: %d%%\n', bat(2));
     catch ME
-        warning('Battery query skipped: %s', ME.message);
+        warning(ME.identifier,'Battery query skipped: %s',ME.message);
         try
             flush(tcpSocket);
         catch
@@ -731,10 +775,18 @@ if cfg.HRES(inputIdx) == 0
     temp1 = reshape(Data(dev.Ptr_IN(inputIdx):dev.Ptr_IN(inputIdx+1)-1, :), 1, []);
     EMG = gainFactor * double(reshape(temp1, numCh, fsInput * nBaseCols / 500));
 else
-    % High-resolution mode packs samples as int32.
-    temp1 = reshape(Data(dev.Ptr_IN(inputIdx):dev.Ptr_IN(inputIdx+1)-1, :), 1, []);
-    temp2 = typecast(temp1, 'int32');
-    EMG = gainFactor * double(reshape(temp2, numCh, fsInput * nBaseCols / 500));
+    % Each HRES sample arrives as [highWord,lowWord]. MATLAB typecast on
+    % this little-endian system expects [lowWord,highWord].
+    linearValues = reshape( ...
+        Data(dev.Ptr_IN(inputIdx):dev.Ptr_IN(inputIdx+1)-1,:),1,[]);
+    wordPairs = reshape(linearValues,2,[]);
+    reorderedWords = reshape(flipud(wordPairs),1,[]);
+    int32Values = typecast(reorderedWords,'int32');
+
+    % HRES has a conversion step four times smaller than 16-bit mode.
+    hresGainFactor = gainFactor/4;
+    EMG = hresGainFactor*double(reshape( ...
+        int32Values,numCh,fsInput*nBaseCols/500));
 end
 end
 

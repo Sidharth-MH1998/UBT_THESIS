@@ -1,5 +1,4 @@
-function cfg = makeNovecentoConfig( ...
-    blockDurationSec, activeInputs, emgChannels)
+function cfg = makeNovecentoConfig(blockDurationSec, activeInputs, emgChannels)
 %MAKENOVECENTOCONFIG Build the Novecento streaming configuration.
 %
 % INPUTS

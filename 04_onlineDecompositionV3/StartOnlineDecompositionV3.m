@@ -4,8 +4,7 @@ clear;
 close all;
 
 %% Select a decomposed or manually edited MUedit MAT file.
-[matFileName, matFolder] = uigetfile('*.mat', ...
-    'Select decomposed MUedit file');
+[matFileName, matFolder] = uigetfile('*.mat','Select decomposed MUedit file');
 if isequal(matFileName, 0)
     disp('No MUedit file selected. Online decomposition cancelled.');
     return;
@@ -15,6 +14,8 @@ matFile = fullfile(matFolder, matFileName);
 load(matFile);
 
 calibration_data = signal;
+
+% used manually edited pulse train if available
 if exist('edition', 'var')
     editedMUFields = {'Pulsetrain', 'Dischargetimes'};
     for fieldIdx = 1:numel(editedMUFields)
@@ -23,9 +24,9 @@ if exist('edition', 'var')
             calibration_data.(fieldName) = edition.(fieldName);
         end
     end
-    disp('Using signal.data with manually edited MU results.');
+    disp('Using manually edited decomposition data.');
 else
-    disp('Using non-edited MUedit decomposition data.');
+    disp('Using non-edited decomposition data.');
 end
 fprintf('Loaded Calibration file: %s\n', matFile);
 
@@ -104,4 +105,4 @@ cfg.forceDefaultZeroValues = [0 0 0];
 cfg.forceDefaultReverseStates = [false false false];
 
 %% Run V2 decomposition and force acquisition together
-data_out = onlineForceStreamV2(calibration_data,parameters,cfg);
+data_out = online_decompositionV3(calibration_data,parameters,cfg);
