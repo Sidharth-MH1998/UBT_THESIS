@@ -52,17 +52,17 @@ end
 rateWindowCount = max(1, round(rateWindowSec / streamWindowSec));
 historyCount = max(2, round(historySec / streamWindowSec));
 
-dark = [0.149 0.149 0.149];
-light = [0.9412 0.9412 0.9412];
+backgroundColor = [1 1 1];
+textColor = [0.15 0.15 0.15];
 fig = figure('Name','I-Spin Quadrant Feedback', ...
-    'NumberTitle','off','Color',dark,'Position',[220 90 820 760]);
+    'NumberTitle','off','Color',backgroundColor,'Position',[220 90 820 760]);
 ax = axes('Parent',fig,'Units','normalized','Position',[0.12 0.12 0.82 0.80], ...
-    'Color','none','XColor',light,'YColor',light,'FontName','Poppins', ...
+    'Color',backgroundColor,'XColor',textColor,'YColor',textColor,'FontName','Poppins', ...
     'FontSize',18,'LineWidth',1.2);
 hold(ax,'on');
-xlabel(ax,sprintf('Discharge rate MU%d (pps)',xMU));
-ylabel(ax,sprintf('Discharge rate MU%d (pps)',yMU));
-title(ax,'Two-Motor-Unit Quadrant','Color',light,'FontWeight','bold');
+xlabel(ax,sprintf('Discharge rate MU%d (pps)',xMU),'Color',textColor);
+ylabel(ax,sprintf('Discharge rate MU%d (pps)',yMU),'Color',textColor);
+title(ax,'Two-Motor-Unit Quadrant','Color',textColor,'FontWeight','bold');
 
 if isempty(axisMax)
     axisMax = 30;
@@ -72,17 +72,17 @@ ylim(ax,[0 axisMax]);
 axis(ax,'square');
 
 % I-Spin uses two rays at 30 and 60 degrees to form the central sector.
-sectorColor = [0.5608 0.6196 0.851];
+sectorColor = [0.40 0.45 0.70];
 lowerRay = plot(ax,[0 axisMax],[0 axisMax*tan(pi/6)], ...
     'Color',sectorColor,'LineWidth',4);
 upperRay = plot(ax,[0 axisMax/tan(pi/3)],[0 axisMax], ...
     'Color',sectorColor,'LineWidth',4);
-trajectory = plot(ax,nan,nan,'-','Color',[0.25 0.80 0.95], ...
+trajectory = plot(ax,nan,nan,'-','Color',[0 0.45 0.65], ...
     'LineWidth',4);
 cursor = plot(ax,nan,nan,'o','MarkerSize',20,'LineWidth',4, ...
     'MarkerEdgeColor',[1 0.25 0.25],'MarkerFaceColor',[1 0.25 0.25]);
 status = text(ax,0.02,0.98,'Waiting for decoded data ...','Units','normalized', ...
-    'VerticalAlignment','top','Color',light,'FontName','Poppins','FontSize',13);
+    'VerticalAlignment','top','Color',textColor,'FontName','Poppins','FontSize',13);
 
 state.enabled = true;
 state.fig = fig;

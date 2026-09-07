@@ -1,4 +1,3 @@
-
 function out = onlineDecompositionStream(signal,parameters,cfg,sharedUI)
 %onlineDecompositionStream Online decomposition pipeline.
 %
@@ -15,7 +14,7 @@ function out = onlineDecompositionStream(signal,parameters,cfg,sharedUI)
 % Final filters are read from signal.RefinedMUFilters when available.
 % Otherwise, the original signal.MUFilters matrix is used directly.
 
-%% 1) Read and validate the MUedit structures
+%% Read and validate the MUedit structures
 if nargin < 3 || ~isstruct(cfg) || isempty(cfg)
     error('A complete cfg structure must be supplied.');
 end
@@ -61,7 +60,8 @@ if ~iscell(Distime) || numel(Distime) ~= nFinalMU
         'contain one cell per motor unit.']);
 end
 
-MUFilters = double(getMUfilters(calibEMG,EMGmask,Distime));
+MUFilters = double(getMUfilters(calibEMG,EMGmask,Distime)); % build new MUfilter
+
 if ~isequal(size(MUFilters),[expectedFilterRows nFinalMU])
     error(['Rebuilt MU filters have size %s, but %s is required.'], ...
         mat2str(size(MUFilters)),mat2str([expectedFilterRows nFinalMU]));
@@ -80,11 +80,10 @@ fprintf('Online motor-unit filters: %d\n',nMU);
 fprintf('%s: %d x %d\n',filterMessage, ...
     size(MUFilters,1),size(MUFilters,2));
 
-[extensionfactor,iReSIG,normval,centroid] = prepare_online_parameters( ...
-    calibEMG,EMGmask,MUFilters,fs,onlineNbextchan);
+[extensionfactor,iReSIG,normval,centroid] = prepare_online_parameters(calibEMG,EMGmask,MUFilters,fs,onlineNbextchan);
 MUfilt = MUFilters' * iReSIG;
 
-%% 2) Novecento connection and online stream geometry
+%% Novecento connection and online stream geometry
 dev = novecento_connect(cfg);
 % Ensure hardware is stopped/disconnected on any exit path.
 cleanupObj = onCleanup(@() novecento_disconnect(dev));
@@ -126,11 +125,10 @@ spike_centroids = ones(nsamp, nMU) .* centroid(:,2)';
 % Stateful overlap buffer required by getspikesonline across windows.
 esample2 = zeros(nGood * extensionfactor, extensionfactor - 1);
 
-%% 3) Figure/state initialization and online accumulators
+%% Figure/state initialization and online accumulators
 [fig, plotState] = init_live_figure(nMU, cfg, sharedUI);
 if isfield(cfg,'showQuadrant') && cfg.showQuadrant
-    quadrantState = ispin_quadrant_feedback( ...
-        'init',nMU,fs_online,windowSec,cfg);
+    quadrantState = ispin_quadrant_feedback('init',nMU,fs_online,windowSec,cfg);
 else
     quadrantState = struct('enabled',false);
 end
@@ -160,7 +158,7 @@ fprintf('Inputs: %s | fs: %d Hz | window: %d samples (%.3f s)\n', ...
     mat2str(activeInputs), fs_online, nsamp, windowSec);
 fprintf('Close the figure window to stop the session.\n\n');
 
-%% 4) Real-time processing loop
+%% Real-time processing loop
 while ishandle(fig)
     if ~ishandle(sharedUI.fig)
         break;
@@ -188,8 +186,7 @@ while ishandle(fig)
     % Remove channels marked bad during calibration.
     emgGood = emgBlock(EMGmask == 0, :);
 
-    [pulseChunk, distChunk, esample2] = getspikesonline( ...
-        emgGood, extensionfactor, esample2, MUfilt, normval, ...
+    [pulseChunk, distChunk, esample2] = getspikesonline(emgGood, extensionfactor, esample2, MUfilt, normval, ...
         noise_centroids, spike_centroids, nsamp, fs_online);
 
     windowCount = windowCount + 1;
@@ -221,8 +218,7 @@ while ishandle(fig)
     currentTime = sampleCursor / fs_online;
 
     update_live_plot(fig, plotState, Dischargetimes_online, fr_online, currentTime, cfg, fs_online);
-    quadrantState = ispin_quadrant_feedback( ...
-        'update',quadrantState,distChunk,currentTime);
+    quadrantState = ispin_quadrant_feedback('update',quadrantState,distChunk,currentTime);
 
     if cfg.printEveryNWindows > 0 && mod(windowCount, cfg.printEveryNWindows) == 0
         spikesThisWin = sum(distChunk, 1);
@@ -231,7 +227,7 @@ while ishandle(fig)
     end
 end
 
-%% 5) Concatenate buffers and build output struct
+%% Concatenate buffers and build output struct
 elapsed = toc(sessionStart);
 
 Pulsetrain_online = concat_chunks(Pulsetrain_chunks, nMU);
@@ -790,7 +786,7 @@ else
 end
 end
 
-%% Graceful hardware shutdown
+%% hardware shutdown
 function novecento_disconnect(dev)
 try
     stopString = dev.ConfString;
