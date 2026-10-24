@@ -6,7 +6,7 @@ clear;
 % IMPORTANT: FILL SUBJECT ID AT THE BEGINNING
 % participantID = "SH"; % used to load existing calibration file
 
-ard_port = 'COM4'; 
+ard_port = 'COM3'; 
 fs_force = 50;  % Force fs
 numForceChan = 3;  % number of force channels
 displayTime = 10;  % Display 10 seconds of data with extra 5 seconds of empty space
@@ -50,7 +50,7 @@ for i = 1:numForceChan
 end
 
 % Setup force streaming
-serialObj = initializeArduinoStream(ard_port);
+serialObj = initializeArduinoForceStream(ard_port);
 serialCleanup = onCleanup(@() closeSerialObject(serialObj));
 
 % initiialise arrays to avoid resizing them during acquisition.

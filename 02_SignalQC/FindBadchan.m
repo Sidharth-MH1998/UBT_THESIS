@@ -1,4 +1,4 @@
-function [badchan, badChannelReport] = FindBadchan(emgData, samplingRate, lineFrequencyHz)
+function [badchan, badChannelReport] = FindBadchan(emgData, samplingRate, lineFrequencyHz, verbose)
 %IDENTIFY_BAD_EMG_CHANNELS Find potentially bad channels in an EMG matrix.
 %   badchan = Identify_Bad_EMG_Channels(emgData)
 %   badchan = Identify_Bad_EMG_Channels(emgData, samplingRate)
@@ -7,6 +7,7 @@ function [badchan, badChannelReport] = FindBadchan(emgData, samplingRate, lineFr
 %
 % emgData must be channels x samples. Defaults are 2000 Hz sampling and
 % 50 Hz line frequency. The function saves nothing and prints its findings.
+% Pass verbose=false as the fourth argument to return results without printing.
 
 if nargin < 2 || isempty(samplingRate)
     samplingRate = 2000;
@@ -14,6 +15,7 @@ end
 if nargin < 3 || isempty(lineFrequencyHz)
     lineFrequencyHz = 50;
 end
+if nargin < 4, verbose = true; end
 
 % Conservative thresholds. Visually confirm every reported channel.
 lowRmsFactor = 0.10;       % RMS below 10% of the channel median
@@ -117,22 +119,26 @@ for channelIndex = 1:channelCount
 end
 
 %% Print results only
+if verbose
 fprintf('\nChecked %d channels and %d samples at %.1f Hz.\n', ...
     channelCount, sampleCount, samplingRate);
 fprintf('Potential bad-channel list for decompose4:\n');
 fprintf('badchan = %s;\n\n', mat2str(badchan));
+end
 
 if isempty(badchan)
     badChannelReport = table;
-    fprintf('No channel exceeded the configured thresholds.\n');
+    if verbose, fprintf('No channel exceeded the configured thresholds.\n'); end
 else
     badChannelReport = table(badchan', channelRms(badchan), ...
         lineNoiseRatio(badchan), lowFrequencyRatio(badchan), ...
         bestCorrelation(badchan), reason(badchan), ...
         'VariableNames', {'Channel','RMS','LineNoiseRatio', ...
         'LowFrequencyRatio','BestCorrelation','Reason'});
-    disp(badChannelReport);
-    fprintf('These are candidates only; visually confirm them before exclusion.\n');
+    if verbose
+        disp(badChannelReport);
+        fprintf('These are candidates only; visually confirm them before exclusion.\n');
+    end
 end
 
 end

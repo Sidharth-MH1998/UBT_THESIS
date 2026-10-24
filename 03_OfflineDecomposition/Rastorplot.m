@@ -2,8 +2,8 @@
 %
 % Uses results.spike_train and signal.fsamp from the workspace.
 
-spikeTrain = Calib_data.spike_train;
-fs =fs;
+spikeTrain = decomp_results3.spike_train;
+fs =2000;
 [nSamples,nMUs] = size(spikeTrain);
 spikeCounts = zeros(1,nMUs);
 

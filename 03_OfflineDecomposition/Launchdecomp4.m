@@ -17,7 +17,7 @@ fs = 2000;
 badchan = [];
 padLen = 200;
 initialization = 0;
-NITER = 50;
+NITER = 150;
 nbextchan =1024;        
 silthr = 0.9;
 covfilter = 1;
@@ -28,7 +28,7 @@ peeloffwin = 0.025;
 duplicatesthresh = 0.3;
 CoVDR = 0.3;
 contrastfunc = 'skew';
-refineMU = 1;
+refineMU = 0;
 preproc_flag = 1;
 
 
@@ -39,7 +39,7 @@ preproc_flag = 1;
 
 %% Save beside the loaded recording
 [~,loadedBaseName] = fileparts(loadedFileName);
-outputFile = fullfile(loadedFilePath, [loadedBaseName '_decomposed4.mat']);
+outputFile = fullfile(loadedFilePath, [loadedBaseName '_decomposed4w.mat']);
 
 save(outputFile,'signal','parameters','-v7.3');
 fprintf('Saved decomposition to:\n%s\n',outputFile);

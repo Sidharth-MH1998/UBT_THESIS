@@ -39,7 +39,7 @@ defaultReverseStates = config.defaultReverseStates;
 calibrationFile = config.forceCalibrationFile;
 if isempty(calibrationFile) && config.promptForceCalibration
     ScriptDir = fileparts(mfilename('fullpath'));
-    [calibrationFileName, path] = uigetfile(fullfile(ScriptDir, '*.mat'),'Select calibration file, or press Cancel to use defaults');
+    [calibrationFileName, path] = uigetfile(fullfile(fileparts(ScriptDir), '*.mat'),'Select calibration file, or press Cancel to use defaults');
     if ~isequal(calibrationFileName, 0)
         calibrationFile = fullfile(path, calibrationFileName);
     end
@@ -61,6 +61,13 @@ else
     reverseStates = defaultReverseStates;
     disp('No calibration file selected. Using default calibration values.');
 end
+% Save the source filename, rather than duplicating calibration arrays.
+% An empty name means default calibration values were used.
+calibrationFileName = '';
+if ~isempty(calibrationFile)
+    [~, calibrationBaseName, calibrationExtension] = fileparts(calibrationFile);
+    calibrationFileName = [calibrationBaseName calibrationExtension];
+end
 
 %% 4. Initialize figure and axes
 [fig, ax_f, ax_emg, btnClose, btnZero, btnRecord, btnRecordTracking, ...
@@ -69,7 +76,7 @@ end
     trialBox, sessionBox] = setupRecordingFigure(EmgToggle, numel(emgPreviewRows));
 
 %% 5. Setup Force streaming from Arduino
-serialObj = initializeArduinoStream(ard_port); % MATLAB’s communication link to the Arduino
+serialObj = initializeArduinoForceStream(ard_port); % MATLAB’s communication link to the Arduino
 serialCleanup = onCleanup(@() closeSerialObject(serialObj)); 
 
 %% 6. Setup EMG streaming and plotting when enabled
@@ -310,18 +317,14 @@ while ishandle(fig) % continue until main fig is on
                         activeEMGInputs = emgCfg.activeInputs;
                         signal = buildMUeditSignal(recordedEMG, fs_emg, ...
                             recordedForce, digit, forceTarget, activeEMGInputs, ...
-                            muEditGridName, muEditMuscle);
-                        save(filename, 'forceData', 'recordedForce', ...
-                            'recordStartForce', 'recordEndForce', 'fs_force', ...
-                            'calibrationFactors', 'zeroValues', 'reverseStates', ...
-                            'tStamps', 'recordedEMG', 'recordStartEMG', ...
-                            'recordEndEMG', 'fs_emg', 'emgChannels', ...
-                            'activeEMGInputs', 'signal', '-v7.3');
+                            muEditGridName, muEditMuscle, fs_force);
+                        signal.calibrationFileName = calibrationFileName;
+                        % EMG/force recordings and EMG rate are already in signal.
+                        save(filename, 'signal', '-v7.3');
                     else
-                        save(filename, 'forceData', 'recordedForce', ...
-                            'recordStartForce', 'recordEndForce', 'fs_force', ...
-                            'calibrationFactors', 'zeroValues', 'reverseStates', ...
-                            'tStamps');
+                        save(filename, 'recordedForce', ...
+                            'fs_force', ...
+                            'calibrationFileName');
                     end
 
                     disp(['Recording saved as: ', filename]);
@@ -371,18 +374,14 @@ while ishandle(fig) % continue until main fig is on
                     activeEMGInputs = emgCfg.activeInputs;
                     signal = buildMUeditSignal(recordedEMG, fs_emg, ...
                         recordedForce, digit, forceTarget, activeEMGInputs, ...
-                        muEditGridName, muEditMuscle);
-                    save(filename, 'forceData', 'recordedForce', ...
-                        'recordStartForce', 'recordEndForce', 'fs_force', ...
-                        'calibrationFactors', 'zeroValues', 'reverseStates', ...
-                        'tStamps', 'recordedEMG', 'recordStartEMG', ...
-                        'recordEndEMG', 'fs_emg', 'emgChannels', ...
-                        'activeEMGInputs', 'signal', '-v7.3');
+                        muEditGridName, muEditMuscle, fs_force);
+                    signal.calibrationFileName = calibrationFileName;
+                    % EMG/force recordings and EMG rate are already in signal.
+                    save(filename, 'signal', '-v7.3');
                 else
-                    save(filename, 'forceData', 'recordedForce', ...
-                        'recordStartForce', 'recordEndForce', 'fs_force', ...
-                        'calibrationFactors', 'zeroValues', 'reverseStates', ...
-                        'tStamps');
+                    save(filename, 'recordedForce', ...
+                        'fs_force', ...
+                        'calibrationFileName');
                 end
 
                 disp(['Recording saved as: ', filename]);

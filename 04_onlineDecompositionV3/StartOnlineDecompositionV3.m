@@ -92,7 +92,7 @@ cfg.HPF(cfg.activeInputs) = 1;
 cfg.FsampCode(cfg.activeInputs) = 1; % 1 = 2000 Hz
 
 % Arduino force stream
-cfg.forcePort = 'COM4';
+cfg.forcePort = 'COM3';
 cfg.forceFs = 50;
 cfg.forceMaxDurationSec = 10*60;
 cfg.forceDisplayTimeSec = 15;

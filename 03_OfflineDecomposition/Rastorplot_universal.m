@@ -22,7 +22,7 @@ assert(exist('parameters','var') == 1, ...
 fs = signal.fsamp;         % Sampling frequency saved with the EMG
 fs_force = 50;             % recordedForce sampling frequency in Hz
 
-plot_force_overlay = 0;    % 1 = plot force on raster, 0 = no force
+plot_force_overlay = 1;    % 1 = plot force on raster, 0 = no force
 
 plot_start_sec = [];       % Start time in seconds. [] = start at 0 s
 plot_stop_sec = [];        % Stop time in seconds. [] = use full recording

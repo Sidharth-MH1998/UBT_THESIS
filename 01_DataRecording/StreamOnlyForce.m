@@ -7,7 +7,7 @@ clear all
 % replacement, exponential smoothing, target tracking, and saving behavior.
 
 %% Parameters
-ard_port = 'COM4';                 % Modify based on the system
+ard_port = 'COM3';                 % Modify based on the system
 fs_force = 50;                     % Force sampling frequency (50 Hz)
 maxDuration = 10 * 60;             % Maximum recording time (10 minutes)
 
