@@ -58,13 +58,13 @@ classdef OnlineAppDashboard < handle
                 'BackgroundColor',[0.14 0.14 0.14]);
             buttons = uigridlayout(grid,[1 4],'ColumnWidth',{140,160,180,'1x'}, ...
                 'Padding',[0 0 0 0],'BackgroundColor',[0.14 0.14 0.14]);
-            obj.RasterButton = uibutton(buttons,'Text','Open raster', ...
+            obj.RasterButton = uibutton(buttons,'Text','Raster', ...
                 'Tag','openRaster','Enable','off', ...
                 'ButtonPushedFcn',@(~,~) obj.openRaster());
-            obj.QuadrantButton = uibutton(buttons,'Text','Open quadrant', ...
+            obj.QuadrantButton = uibutton(buttons,'Text','Quadrant', ...
                 'Tag','openQuadrant','Enable','off', ...
                 'ButtonPushedFcn',@(~,~) obj.openQuadrant());
-            obj.RateButton = uibutton(buttons,'Text','Open firing rates', ...
+            obj.RateButton = uibutton(buttons,'Text','Firing rates', ...
                 'Tag','openFiringRates','Enable','off', ...
                 'ButtonPushedFcn',@(~,~) obj.openFiringRates());
             obj.ForceAxes = obj.makeAxes(grid,'Force (% calibrated)','Time (s)','Force (%)');
@@ -316,7 +316,7 @@ classdef OnlineAppDashboard < handle
             obj.QuadrantReady = false;
             obj.QuadrantFigure = uifigure('Name','Quadrant feedback', ...
                 'Tag','OnlineAppQuadrantWindow','Color',[0.14 0.14 0.14], ...
-                'Position',[180 100 1060 700],'Visible','off', ...
+                'Position',[180 100 1060 700],'Visible','off','AutoResizeChildren','off', ...
                 'CloseRequestFcn',@(~,~) obj.closePopup('quadrant'));
             layout = uigridlayout(obj.QuadrantFigure,[1 2], ...
                 'ColumnWidth',{280,'1x'}, ...
@@ -324,7 +324,36 @@ classdef OnlineAppDashboard < handle
             obj.createQuadrantControls(layout);
             obj.QuadrantAxes = obj.makeAxes(layout,'Quadrant feedback','X MU (pps)','Y MU (pps)');
             obj.rebuildQuadrant();
+            obj.QuadrantFigure.SizeChangedFcn = @(~,~) obj.resizeQuadrant();
+            obj.resizeQuadrant();
             obj.QuadrantFigure.Visible = 'on';
+        end
+
+        function resizeQuadrant(obj)
+            if ~isgraphics(obj.QuadrantFigure) || ~isgraphics(obj.QuadrantAxes), return; end
+            windowSize = obj.QuadrantFigure.Position(3:4);
+            layout = obj.QuadrantAxes.Parent;
+            scale = min(1.25,max(0.85,0.9*min(windowSize(2)/700,windowSize(1)/1060)));
+            baseWidth = 280*scale;
+            % Give the raster half the spare horizontal room around the square.
+            spareWidth = max(0,windowSize(1)-baseWidth-windowSize(2)-70);
+            layout.ColumnWidth = {baseWidth+spareWidth/2,'1x'};
+            form = obj.QuadrantRasterAxes.Parent;
+            form.ColumnWidth = {145*scale,115*scale,'1x'};
+            form.RowHeight = [num2cell([34 34 28 28 28 28 30 40 52 200]*scale),{'1x'}];
+            form.RowSpacing = 10*scale;
+            labels = findall(form,'-isa','matlab.ui.control.Label');
+            for label = labels', label.FontSize = 10*scale; end
+            names = fieldnames(obj.QuadrantControls);
+            for idx = 1:numel(names)
+                obj.QuadrantControls.(names{idx}).FontSize = 10*scale;
+            end
+            obj.QuadrantApplyButton.FontSize = 10*scale;
+            obj.QuadrantAxes.FontSize = 12;
+            obj.QuadrantAxes.XLabel.FontSize = 13;
+            obj.QuadrantAxes.YLabel.FontSize = 13;
+            obj.QuadrantRasterAxes.FontSize = 10*scale;
+            obj.QuadrantRasterAxes.XLabel.FontSize = 11*scale;
         end
 
         function rebuildQuadrant(obj)
@@ -342,7 +371,8 @@ classdef OnlineAppDashboard < handle
             end
             yticks(obj.QuadrantRasterAxes,[1 2]);
             yticklabels(obj.QuadrantRasterAxes, ...
-                {['X: ' obj.Labels{selected(1)}],['Y: ' obj.Labels{selected(2)}]});
+                {'Motor unit 1','Motor unit 2'});
+            obj.QuadrantRasterAxes.YAxis.FontWeight = 'bold';
             ylim(obj.QuadrantRasterAxes,[0.5 2.5]);
             obj.QuadrantRasterAxes.YDir = 'reverse';
             obj.QuadrantRasterReady = true;
@@ -350,32 +380,46 @@ classdef OnlineAppDashboard < handle
             obj.Quadrant = struct('enabled',false);
             obj.Quadrant = ispin_quadrant_feedback('init',numel(obj.Labels), ...
                 cfg.fs,cfg.blockDurationSec,cfg,obj.QuadrantAxes);
-            xlabel(obj.QuadrantAxes,[obj.Labels{cfg.quadrantXMU} ' (pps)']);
-            ylabel(obj.QuadrantAxes,[obj.Labels{cfg.quadrantYMU} ' (pps)']);
+            xIdentity = regexprep(obj.Labels{cfg.quadrantXMU},'MU(\d+)','MU $1');
+            yIdentity = regexprep(obj.Labels{cfg.quadrantYMU},'MU(\d+)','MU $1');
+            xlabel(obj.QuadrantAxes,['Motor unit 1 activity (Pulses per second): ' xIdentity], ...
+                'FontWeight','bold');
+            ylabel(obj.QuadrantAxes,['Motor unit 2 activity (Pulses per second): ' yIdentity], ...
+                'FontWeight','bold');
             frames = obj.QuadrantFrames;
             times = obj.QuadrantTimes;
             for idx = 1:numel(frames)
                 obj.updateQuadrant(frames{idx},times(idx));
             end
             obj.QuadrantReady = true;
+            obj.resizeQuadrant();
         end
 
         function createQuadrantControls(obj,parent)
-            form = uigridlayout(parent,[9 2],'ColumnWidth',{'1x',115}, ...
-                'RowHeight',{34,34,42,42,42,42,40,52,'1x'}, ...
+            form = uigridlayout(parent,[11 3],'ColumnWidth',{145,115,'1x'}, ...
+                'RowHeight',{34,34,28,28,28,28,30,40,52,200,'1x'}, ...
                 'Padding',[4 4 4 4],'BackgroundColor',[0.14 0.14 0.14]);
             fields = {'quadrantXMU','X-axis motor unit','mu'; ...
                 'quadrantYMU','Y-axis motor unit','mu'; ...
                 'quadrantRateWindowSec','Rate window (s)','number'; ...
                 'quadrantSmoothingWindows','Smoothing windows','number'; ...
                 'quadrantHistorySec','Cursor history (s)','number'; ...
-                'quadrantAxisMax','Axis max (0 = auto)','number'};
+                'quadrantAxisMax','Axis max (0 = auto)','number'; ...
+                'quadrantShowReferenceLines','Show reference lines','check'};
             for idx = 1:size(fields,1)
                 name = fields{idx,1};
-                uilabel(form,'Text',fields{idx,2},'WordWrap','on', ...
+                label = uilabel(form,'Text',fields{idx,2},'WordWrap','on', ...
                     'FontColor',[0.9 0.9 0.9]);
-                value = obj.Config.(name);
+                label.Layout.Row = idx;
+                label.Layout.Column = 1;
+                if isfield(obj.Config,name)
+                    value = obj.Config.(name);
+                else
+                    value = true; % Reference lines default on for older configurations.
+                end
                 switch fields{idx,3}
+                    case 'check'
+                        control = uicheckbox(form,'Text','','Value',value);
                     case 'mu'
                         control = uidropdown(form,'Items',obj.Labels, ...
                             'ItemsData',1:numel(obj.Labels),'Value',value);
@@ -384,21 +428,23 @@ classdef OnlineAppDashboard < handle
                         control = uieditfield(form,'numeric','Value',value);
                 end
                 control.Tag = name;
+                control.Layout.Row = idx;
+                control.Layout.Column = 2;
                 obj.QuadrantControls.(name) = control;
             end
             obj.QuadrantApplyButton = uibutton(form,'Text','Apply settings', ...
                 'Tag','applyQuadrantSettings','ButtonPushedFcn',@(~,~) obj.applyQuadrant());
-            obj.QuadrantApplyButton.Layout.Row = 7;
+            obj.QuadrantApplyButton.Layout.Row = 8;
             obj.QuadrantApplyButton.Layout.Column = [1 2];
             note = uilabel(form,'Text', ...
                 'Settings are locked while recording. Applying settings restarts the feedback history.', ...
                 'WordWrap','on','VerticalAlignment','top','FontColor',[0.75 0.75 0.75]);
-            note.Layout.Row = 8;
+            note.Layout.Row = 9;
             note.Layout.Column = [1 2];
-            obj.QuadrantRasterAxes = obj.makeAxes(form,'Selected MU raster','Time (s)','');
+            obj.QuadrantRasterAxes = obj.makeAxes(form,'Firing of selected Motor unit','Time (s)','');
             obj.QuadrantRasterAxes.Tag = 'quadrantSelectedMURaster';
-            obj.QuadrantRasterAxes.Layout.Row = 9;
-            obj.QuadrantRasterAxes.Layout.Column = [1 2];
+            obj.QuadrantRasterAxes.Layout.Row = 10;
+            obj.QuadrantRasterAxes.Layout.Column = [1 3];
             obj.QuadrantRasterAxes.FontSize = 9;
             obj.setRecordingLocked(obj.RecordingLocked);
         end

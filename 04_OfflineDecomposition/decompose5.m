@@ -44,6 +44,16 @@ function [signal,parameters] = decompose5(emg, fs, badchan, padLen, initializati
 %       D, E          - Eigenvalue and eigenvector matrices from PCA.
 %       whitened_mat  - Whitening matrix.
 %       MUFilters     - Original filters retained after SIL/CoV control.
+%       MUAPs         - Cell per MU: good channels x waveform samples, using
+%                       optionally filtered EMG before padding/differentiation.
+%       MUAPp2p       - Cell per MU: peak-to-peak amplitude per good channel.
+%       MUAPmaxp2p    - Largest channel peak-to-peak amplitude per MU.
+%       MUAPchannels  - Channel indices corresponding to MUAP rows.
+%       MUAPtime      - Waveform time axis in seconds, centered on discharge.
+%       MUAPnSpikes   - Number of complete windows averaged per MU.
+%                       No usable windows gives NaN waveforms/amplitudes.
+%                       For multi-grid input, these fields are cells per grid;
+%                       MUAPchannels uses original recording channel indices.
 %   parameters        - Parameters used for this decomposition.
 
 %% Step 0: Initialize outputs
@@ -212,7 +222,8 @@ if isstruct(emg)
                 result.MUFilters = result.MUFilters(:,selected);
                 result.peaks = result.peaks(selected,:);
                 result.spike_train = result.spike_train(:,selected);
-                muFields = {'MUPulses','sil_all','cov_all','fr','mean_fr'};
+                muFields = {'MUPulses','sil_all','cov_all','fr','mean_fr', ...
+                    'MUAPs','MUAPp2p','MUAPmaxp2p','MUAPnSpikes'};
                 for field = 1:numel(muFields)
                     result.(muFields{field}) = result.(muFields{field})(selected);
                 end
@@ -223,6 +234,20 @@ if isstruct(emg)
             signal.gridResults{grid} = result;
             signal.gridSummary(grid).motorUnits = numel(selected);
         end
+    end
+    % Expose final MUAP results after applying the same MU survivor selection.
+    muapFields = {'MUAPs','MUAPp2p','MUAPmaxp2p','MUAPchannels', ...
+        'MUAPtime','MUAPnSpikes'};
+    for field = 1:numel(muapFields)
+        signal.(muapFields{field}) = cell(1,nGrids);
+        for grid = 1:nGrids
+            signal.(muapFields{field}){grid} = ...
+                signal.gridResults{grid}.(muapFields{field});
+        end
+    end
+    for grid = 1:nGrids
+        signal.MUAPchannels{grid} = parameters.gridChannels{grid}( ...
+            signal.MUAPchannels{grid});
     end
     parameters.crossGridDuplicatesRemoved = removedAcrossGrids;
     fprintf('\nRemoved %d duplicate MUs across grids.\n',removedAcrossGrids);
@@ -261,6 +286,12 @@ signal.sil_all = [];
 signal.cov_all = [];
 signal.fr = {};
 signal.mean_fr = [];
+signal.MUAPs = {};
+signal.MUAPp2p = {};
+signal.MUAPmaxp2p = [];
+signal.MUAPchannels = [];
+signal.MUAPtime = [];
+signal.MUAPnSpikes = [];
 signal.D = [];
 signal.E = [];
 signal.whitened_mat = [];
@@ -303,6 +334,10 @@ if ~isempty(badchan)
 else
     goodchan = 1:nChannels;
 end
+
+% Preserve voltage waveforms on the original timeline for MUAP averaging.
+muapEMG = emg;
+signal.MUAPchannels = goodchan;
 
 if padLen > 0
     % Padding reduces edge artefacts during filtering and source recovery.
@@ -554,6 +589,34 @@ end
 if differentialmode && size(Pulsetrain,2) == nSamplesOriginal-1
     Pulsetrain(:,end+1) = 0;
     spike_train(end+1,:) = 0;
+end
+
+%% Step 12: Compute average MUAP waveforms and peak-to-peak amplitudes
+% peeloffwin is the half-window in seconds (0.025 means +/-25 ms).
+% Use undifferentiated, unpadded EMG so amplitudes retain the EMG units.
+windowl = round(peeloffwin*fs);
+signal.MUAPtime = (-windowl:windowl)/fs;
+signal.MUAPs = cell(1,nMUs);
+signal.MUAPp2p = cell(1,nMUs);
+signal.MUAPmaxp2p = nan(1,nMUs);
+signal.MUAPnSpikes = zeros(1,nMUs);
+for mu = 1:nMUs
+    spikes = Dischargetimes{mu};
+    % Only complete windows contribute; exclude recording-edge discharges.
+    spikes = spikes(spikes > windowl & spikes <= size(muapEMG,2)-windowl);
+    waveform = nan(size(muapEMG,1),1+2*windowl);
+    if ~isempty(spikes)
+        offsets = (-windowl:windowl)';
+        indices = offsets + spikes(:)';
+        for channel = 1:size(muapEMG,1)
+            segments = reshape(muapEMG(channel,indices(:)),size(indices));
+            waveform(channel,:) = mean(segments,2)';
+        end
+    end
+    signal.MUAPs{mu} = waveform;
+    signal.MUAPp2p{mu} = max(waveform,[],2)-min(waveform,[],2);
+    signal.MUAPmaxp2p(mu) = max(signal.MUAPp2p{mu});
+    signal.MUAPnSpikes(mu) = numel(spikes);
 end
 
 %% Step 13: Calculate firing rates

@@ -22,7 +22,8 @@ classdef OnlineDecompositionApp < handle
         Inputs = struct()
         QuadrantSettings = struct('showQuadrant',true,'quadrantXMU',1, ...
             'quadrantYMU',2,'quadrantRateWindowSec',1, ...
-            'quadrantSmoothingWindows',4,'quadrantHistorySec',7.5,'quadrantAxisMax',[])
+            'quadrantSmoothingWindows',4,'quadrantHistorySec',7.5,'quadrantAxisMax',[], ...
+            'quadrantShowReferenceLines',true)
         Session = []
         Dashboard
         ImportButtons
@@ -226,10 +227,12 @@ classdef OnlineDecompositionApp < handle
     methods (Access = private)
         function createWorkspace(app,parent)
             workspace = uigridlayout(parent,[6 1], ...
-                'RowHeight',{44,36,34,'1x',36,32}, ...
+                'RowHeight',{36,30,30,'1x',36,32}, ...
+                'RowSpacing',8, ...
                 'BackgroundColor',[0.14 0.14 0.14]);
-            toolbar = uigridlayout(workspace,[1 6], ...
-                'ColumnWidth',{160,'1x','1x','1x','1x',90},'Padding',[0 0 0 0]);
+            toolbar = uigridlayout(workspace,[1 7], ...
+                'ColumnWidth',{160,140,140,140,140,90,'1x'}, ...
+                'ColumnSpacing',8,'Padding',[0 0 0 0]);
             app.Mode = uidropdown(toolbar, ...
                 'Items',{'Simulation','Replay calibration','Hardware'}, ...
                 'Value','Simulation','Tag','acquisitionMode', ...
@@ -247,8 +250,9 @@ classdef OnlineDecompositionApp < handle
                 'ButtonPushedFcn',@(~,~) app.stopRecording());
             app.ZeroButton = uibutton(toolbar,'Text','Zero force', ...
                 'ButtonPushedFcn',@(~,~) app.zeroForce());
-            metadata = uigridlayout(workspace,[1 8], ...
-                'ColumnWidth',{75,'1x',55,65,40,65,75,90},'Padding',[0 0 0 0]);
+            metadata = uigridlayout(workspace,[1 9], ...
+                'ColumnWidth',{90,140,55,65,40,65,75,60,'1x'}, ...
+                'ColumnSpacing',8,'Padding',[0 0 0 0]);
             uilabel(metadata,'Text','Participant');
             app.Participant = uieditfield(metadata,'Value','P001');
             uilabel(metadata,'Text','Session');
@@ -259,8 +263,8 @@ classdef OnlineDecompositionApp < handle
                 'Limits',[1 Inf],'RoundFractionalValues','on');
             uilabel(metadata,'Text','Auto-save');
             app.AutoSave = uicheckbox(metadata,'Text','On','Value',true,'Tag','autoSave');
-            output = uigridlayout(workspace,[1 3], ...
-                'ColumnWidth',{90,'1x',80},'Padding',[0 0 0 0]);
+            output = uigridlayout(workspace,[1 4], ...
+                'ColumnWidth',{90,480,80,'1x'},'ColumnSpacing',8,'Padding',[0 0 0 0]);
             uilabel(output,'Text','Output folder');
             root = fileparts(fileparts(mfilename('fullpath')));
             app.OutputFolder = uieditfield(output,'Value',fullfile(root,'online_results'), ...
@@ -289,7 +293,10 @@ classdef OnlineDecompositionApp < handle
             if ~isempty(app.Session) && isvalid(app.Session)
                 app.Session.setQuadrantSettings(settings);
             end
-            app.QuadrantSettings = settings;
+            names = fieldnames(settings);
+            for idx = 1:numel(names)
+                app.QuadrantSettings.(names{idx}) = settings.(names{idx});
+            end
             app.setStatus('Quadrant settings applied.');
         end
 
@@ -536,7 +543,7 @@ classdef OnlineDecompositionApp < handle
                 'activeInputs','Physical inputs','1:2','text';
                 'calibChannels','Calibration channels','1:128','text';
                 'emgChannels','Stream EMG channels','1:64 71:134','text';
-                'emgPreviewChannels','Preview EMG channels','1 65','channels';
+                'emgPreviewChannels','Preview EMG channels','1:8:128','channels';
                 'forceInputChannelCounts','Channels per input','70 70 0 0 0 0 0 0 0 0','text';
                 'blockDurationSec','EMG window (s)',0.128,'number';
                 'onlineDurationSec','Session duration (s)','Inf','text';
@@ -619,7 +626,7 @@ classdef OnlineDecompositionApp < handle
             app.Inputs.emgChannels.Value = strjoin(segments,' ');
             app.Inputs.forceInputChannelCounts.Value = ...
                 strtrim(sprintf('%d ',[repmat(70,1,n) zeros(1,10-n)]));
-            app.Inputs.emgPreviewChannels.Value = strtrim(sprintf('%d ',1:64:64*n));
+            app.Inputs.emgPreviewChannels.Value = sprintf('1:8:%d',64*n);
             app.refreshMuChoices();
         end
 

@@ -66,9 +66,12 @@ else
     textColor = ax.XColor;
 end
 hold(ax,'on');
-xlabel(ax,sprintf('Discharge rate MU%d (pps)',xMU),'Color',textColor);
-ylabel(ax,sprintf('Discharge rate MU%d (pps)',yMU),'Color',textColor);
-title(ax,'Two-Motor-Unit Quadrant','Color',textColor,'FontWeight','bold');
+% Participant labels identify the two selected units; controls retain grid/MU IDs.
+xlabel(ax,'Motor unit 1 activity (pulses/second)','Color',textColor);
+ylabel(ax,'Motor unit 2 activity (pulses/second)','Color',textColor);
+title(ax,{'Increase motor unit 1 activity to move right.'; ...
+    'Increase motor unit 2 activity to move up.'}, ...
+    'Color',textColor,'FontWeight','bold','FontSize',11);
 
 if isempty(axisMax)
     axisMax = 30;
@@ -79,10 +82,16 @@ axis(ax,'square');
 
 % I-Spin uses two rays at 30 and 60 degrees to form the central sector.
 sectorColor = [0.40 0.45 0.70];
+referenceVisibility = 'on';
+if ~read_cfg(cfg,'quadrantShowReferenceLines',true)
+    referenceVisibility = 'off';
+end
 lowerRay = plot(ax,[0 axisMax],[0 axisMax*tan(pi/6)], ...
-    'Color',sectorColor,'LineWidth',4);
+    'Color',sectorColor,'LineWidth',4, ...
+    'Tag','quadrantReferenceLine','Visible',referenceVisibility);
 upperRay = plot(ax,[0 axisMax/tan(pi/3)],[0 axisMax], ...
-    'Color',sectorColor,'LineWidth',4);
+    'Color',sectorColor,'LineWidth',4, ...
+    'Tag','quadrantReferenceLine','Visible',referenceVisibility);
 trajectory = plot(ax,nan,nan,'-','Color',[0 0.45 0.65], ...
     'LineWidth',4);
 cursor = plot(ax,nan,nan,'o','MarkerSize',20,'LineWidth',4, ...
@@ -155,7 +164,7 @@ set(state.trajectory,'XData',state.rates(i0:end,1), ...
     'YData',state.rates(i0:end,2));
 set(state.cursor,'XData',rate(1),'YData',rate(2));
 set(state.status,'String',sprintf( ...
-    't = %.2f s     MU%d = %.1f pps     MU%d = %.1f pps', ...
+    't = %.2f s     X: MU%d = %.1f pps     Y: MU%d = %.1f pps', ...
     timeSec,state.xMU,rate(1),state.yMU,rate(2)));
 if ~state.embedded, drawnow limitrate; end
 end

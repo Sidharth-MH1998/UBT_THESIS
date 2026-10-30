@@ -58,7 +58,7 @@ Preview selection does not change the electrodes used for decoding or recording.
 The preview is decimated to at most 500 points/second per electrode; the shared
 DataRecording stacked-plot helper preserves raw amplitudes with vertical offsets.
 
-**Open raster**, **Open quadrant**, and **Open firing rates** create separate
+**Raster**, **Quadrant**, and **Firing rates** create separate
 windows only when clicked. Repeated clicks
 bring the existing window forward. Closing these windows does not stop acquisition
 or recording; they can be reopened, including after acquisition has stopped.
