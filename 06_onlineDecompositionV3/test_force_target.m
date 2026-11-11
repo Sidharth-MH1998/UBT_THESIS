@@ -14,6 +14,11 @@ pause(0.3); drawnow;
 line = findall(app.Figure,'Tag','forceMVCTarget');
 assert(isscalar(line) && line.Value == 30 && strcmp(line.Visible,'on'));
 assert(contains(line.Label,'30% MVC'));
+forceAxes = findall(app.Figure,'Tag','liveForceAxes');
+emgAxes = findall(app.Figure,'Tag','liveEMGAxes');
+assert(isequal(forceAxes.YLim,[-10 80]));
+assert(forceAxes.XLim(1) == emgAxes.XLim(1));
+assert(abs(forceAxes.XLim(2)-emgAxes.XLim(2)-5) < 1e-10);
 click(app,'Start recording');
 pause(0.3); drawnow;
 click(app,'Stop recording');
@@ -28,6 +33,12 @@ pause(0.2); drawnow;
 line = findall(app.Figure,'Tag','forceMVCTarget');
 assert(isscalar(line) && line.Value == 60 && strcmp(line.Visible,'off'));
 click(app,'Stop acquisition');
+app.Figure.Position = [20 20 1920 1000];
+drawnow;
+assert(emgAxes.Position(4) > forceAxes.Position(4));
+folder = fullfile(fileparts(fileparts(mfilename('fullpath'))),'tmp','online_app_validation');
+if ~isfolder(folder), mkdir(folder); end
+exportapp(app.Figure,fullfile(folder,'live_feedback_scaling_preview.png'));
 disp('MVC force target overlay and recording settings checks passed.');
 end
 

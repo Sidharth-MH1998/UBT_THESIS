@@ -36,6 +36,8 @@ rateWindowSec = read_cfg(cfg, 'quadrantRateWindowSec', 1.0);
 smoothingWindows = read_cfg(cfg, 'quadrantSmoothingWindows', 4);
 historySec = read_cfg(cfg, 'quadrantHistorySec', 7.5);
 axisMax = read_cfg(cfg, 'quadrantAxisMax', []);
+referenceRates = read_cfg(cfg,'quadrantReferenceRates',[]);
+axisScale = read_cfg(cfg,'quadrantAxisScale',1.5);
 
 validateattributes(xMU, {'numeric'}, {'scalar','integer','>=',1,'<=',nMU});
 validateattributes(yMU, {'numeric'}, {'scalar','integer','>=',1,'<=',nMU});
@@ -47,6 +49,16 @@ validateattributes(smoothingWindows, {'numeric'}, {'scalar','integer','>=',1});
 validateattributes(historySec, {'numeric'}, {'scalar','positive','finite'});
 if ~isempty(axisMax)
     validateattributes(axisMax, {'numeric'}, {'scalar','positive','finite'});
+end
+useReferences = ~isempty(referenceRates);
+if useReferences
+    validateattributes(referenceRates,{'numeric'},{'vector','numel',nMU,'real'});
+    selectedReferences = referenceRates([xMU yMU]);
+    assert(all(isfinite(selectedReferences) & selectedReferences > 0), ...
+        'Selected MUs need positive reference firing rates. Check edition.mean_fr or edited discharge times.');
+    validateattributes(axisScale,{'numeric'},{'scalar','real','positive','finite'});
+else
+    selectedReferences = [];
 end
 
 rateWindowCount = max(1, round(rateWindowSec / streamWindowSec));
@@ -73,29 +85,34 @@ title(ax,{'Increase motor unit 1 activity to move right.'; ...
     'Increase motor unit 2 activity to move up.'}, ...
     'Color',textColor,'FontWeight','bold','FontSize',11);
 
-if isempty(axisMax)
-    axisMax = 30;
+if useReferences
+    axisMaxima = axisScale*selectedReferences;
+else
+    if isempty(axisMax), axisMax = 30; end
+    axisMaxima = [axisMax axisMax];
 end
-xlim(ax,[0 axisMax]);
-ylim(ax,[0 axisMax]);
+xlim(ax,[0 axisMaxima(1)]);
+ylim(ax,[0 axisMaxima(2)]);
 axis(ax,'square');
+grid(ax,'off');
 
-% I-Spin uses two rays at 30 and 60 degrees to form the central sector.
+% I-Spin's 30/60-degree rays are defined relative to each axis's own maximum.
 sectorColor = [0.40 0.45 0.70];
 referenceVisibility = 'on';
 if ~read_cfg(cfg,'quadrantShowReferenceLines',true)
     referenceVisibility = 'off';
 end
-lowerRay = plot(ax,[0 axisMax],[0 axisMax*tan(pi/6)], ...
+lowerRay = plot(ax,[0 axisMaxima(1)],[0 axisMaxima(2)*tan(pi/6)], ...
     'Color',sectorColor,'LineWidth',4, ...
     'Tag','quadrantReferenceLine','Visible',referenceVisibility);
-upperRay = plot(ax,[0 axisMax/tan(pi/3)],[0 axisMax], ...
+upperRay = plot(ax,[0 axisMaxima(1)*tan(pi/6)],[0 axisMaxima(2)], ...
     'Color',sectorColor,'LineWidth',4, ...
     'Tag','quadrantReferenceLine','Visible',referenceVisibility);
 trajectory = plot(ax,nan,nan,'-','Color',[0 0.45 0.65], ...
-    'LineWidth',4);
+    'LineWidth',4,'Tag','quadrantTrajectory');
 cursor = plot(ax,nan,nan,'o','MarkerSize',20,'LineWidth',4, ...
-    'MarkerEdgeColor',[1 0.25 0.25],'MarkerFaceColor',[1 0.25 0.25]);
+    'MarkerEdgeColor',[1 0.25 0.25],'MarkerFaceColor',[1 0.25 0.25], ...
+    'Tag','quadrantCursor');
 status = text(ax,0.02,0.98,'Waiting for decoded data ...','Units','normalized', ...
     'VerticalAlignment','top','Color',textColor,'FontName','Poppins','FontSize',13);
 
@@ -116,8 +133,11 @@ state.rateWindowSec = rateWindowSec;
 state.rateWindowCount = rateWindowCount;
 state.smoothingWindows = smoothingWindows;
 state.historyCount = historyCount;
-state.autoAxis = ~isfield(cfg,'quadrantAxisMax') || isempty(cfg.quadrantAxisMax);
-state.axisMax = axisMax;
+state.autoAxis = ~useReferences && (~isfield(cfg,'quadrantAxisMax') || isempty(cfg.quadrantAxisMax));
+state.axisMax = max(axisMaxima);
+state.axisMaxima = axisMaxima;
+state.referenceRates = selectedReferences;
+state.axisScale = axisScale;
 state.spikeCounts = zeros(0,2);
 state.rawRates = zeros(0,2);
 state.rates = zeros(0,2);
@@ -150,6 +170,7 @@ if state.autoAxis
     newMax = ceil(requiredMax/5)*5;
     if newMax > state.axisMax
         state.axisMax = newMax;
+        state.axisMaxima = [newMax newMax];
         xlim(state.ax,[0 newMax]);
         ylim(state.ax,[0 newMax]);
         set(state.lowerRay,'XData',[0 newMax], ...
@@ -182,6 +203,9 @@ data.rawRate = state.rawRates;
 data.spikeCounts = state.spikeCounts;
 data.rateWindowSec = state.rateWindowSec;
 data.smoothingWindows = state.smoothingWindows;
+data.referenceRates = state.referenceRates;
+data.axisScale = state.axisScale;
+data.axisMaxima = state.axisMaxima;
 end
 
 function value = read_cfg(cfg, fieldName, defaultValue)

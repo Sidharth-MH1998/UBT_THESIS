@@ -9,6 +9,7 @@ classdef OnlineAcquisitionSession < handle
         Running = false
         Recording = false
         LastRecording = struct()
+        ExperimentalTask = []
         SampleCursor = 0
     end
     properties
@@ -16,6 +17,7 @@ classdef OnlineAcquisitionSession < handle
         OnStatus = []
         OnRecording = []
         OnError = []
+        OnTaskUpdate = []
     end
     properties (Access = private)
         Signal
@@ -36,6 +38,9 @@ classdef OnlineAcquisitionSession < handle
         RecordMetadata
         RecordStartSample
         RecordStartTime
+        ReplayForce = zeros(0,3)
+        DemoSpikePhase = [0 0]
+        PollSuspended = false
     end
     methods
         function obj = OnlineAcquisitionSession(cfg,signal,parameters)
@@ -59,12 +64,29 @@ classdef OnlineAcquisitionSession < handle
                 if strcmp(obj.Config.acquisitionMode,'Simulation')
                     obj.prepareSimulation();
                     obj.Config.fs = 2000;
+                    obj.Config.quadrantReferenceRates = 12+2*(0:size(obj.MuMap,1)-1);
                 else
                     assert(~isempty(fieldnames(obj.Signal)), ...
                         'Import an edited decomposition before hardware acquisition or replay.');
                     [obj.GridStates,obj.MuMap] = prepare_online_grid_states( ...
                         obj.Signal,obj.Parameters,obj.Config);
                     obj.Config.fs = obj.Signal.fsamp;
+                    obj.Config.quadrantReferenceRates = get_mu_reference_rates(obj.Signal);
+                end
+                obj.Config.forceSource = 'simulated';
+                if strcmp(obj.Config.acquisitionMode,'Hardware')
+                    obj.Config.forceSource = 'hardware';
+                elseif strcmp(obj.Config.acquisitionMode,'Replay calibration') && ...
+                        isfield(obj.Signal,'recordedForce') && ~isempty(obj.Signal.recordedForce)
+                    validateattributes(obj.Signal.recordedForce,{'numeric'}, ...
+                        {'2d','ncols',3,'real','finite'});
+                    obj.ReplayForce = double(obj.Signal.recordedForce);
+                    if isfield(obj.Signal,'fs_force') && ~isempty(obj.Signal.fs_force)
+                        obj.Config.forceFs = obj.Signal.fs_force;
+                    end
+                    validateattributes(obj.Config.forceFs,{'numeric'}, ...
+                        {'scalar','real','positive','finite'});
+                    obj.Config.forceSource = 'recorded';
                 end
                 obj.Config.nsamp = round(obj.Config.fs*obj.Config.blockDurationSec);
                 assert(obj.Config.nsamp > 0 && ...
@@ -104,7 +126,12 @@ classdef OnlineAcquisitionSession < handle
                 obj.Clock = tic;
                 obj.Running = true;
                 if useTimer, obj.beginPolling(); end
-                obj.status('Acquisition running. Press Start recording to retain a segment.');
+                if strcmp(obj.Config.acquisitionMode,'Replay calibration')
+                    obj.status(sprintf('Replay running: %s force at %g Hz. Press Start recording to retain a segment.', ...
+                        obj.Config.forceSource,obj.Config.forceFs));
+                else
+                    obj.status('Acquisition running. Press Start recording to retain a segment.');
+                end
             catch exception
                 obj.Running = false;
                 obj.releaseDevices();
@@ -122,7 +149,26 @@ classdef OnlineAcquisitionSession < handle
             start(obj.PollTimer);
         end
 
+        function startExperimentalTask(obj,settings,metadata)
+            assert(obj.Running && ~obj.Recording,'Start acquisition and stop any active recording first.');
+            assert(all(settings.mu <= numel(obj.Labels)),'Selected MUs are unavailable.');
+            settings.muMap = obj.MuMap(settings.mu,:);
+            settings.simulatedGuidance = strcmp(obj.Config.acquisitionMode,'Simulation');
+            settings.originalMUIds = zeros(1,2);
+            for k = 1:2
+                g = settings.muMap(k,1);
+                settings.originalMUIds(k) = obj.GridStates{g}.originalIDs(settings.muMap(k,2));
+            end
+            task = MotorUnitTargetTask(settings,obj.Config.fs);
+            guard = obj.suspendPolling(); %#ok<NASGU>
+            obj.startRecording(metadata);
+            obj.ExperimentalTask = task;
+            obj.DemoSpikePhase = [0 0];
+            obj.publishTask();
+        end
+
         function startRecording(obj,metadata)
+            guard = obj.suspendPolling(); %#ok<NASGU>
             assert(obj.Running && ~obj.Recording,'Start acquisition before recording.');
             obj.RecordMetadata = metadata;
             obj.RecordStartSample = obj.SampleCursor;
@@ -137,12 +183,21 @@ classdef OnlineAcquisitionSession < handle
         end
 
         function result = stopRecording(obj)
+            guard = obj.suspendPolling(); %#ok<NASGU>
             assert(obj.Recording,'There is no active recording.');
             obj.Recording = false;
             cfg = obj.Config;
             obj.LastRecording = collect_app_recording(obj.Chunks,obj.RecordedForce, ...
                 obj.GridStates,cfg,obj.RecordMetadata, ...
                 obj.RecordStartSample,obj.RecordStartTime);
+            if ~isempty(obj.ExperimentalTask)
+                obj.ExperimentalTask.abort('stopped');
+                obj.LastRecording.task = obj.ExperimentalTask.export();
+                obj.LastRecording.fulltask_data = obj.LastRecording.online;
+                obj.LastRecording = rmfield(obj.LastRecording,'online');
+                obj.publishTask();
+                obj.ExperimentalTask = [];
+            end
             result = obj.LastRecording;
             % Release recording buffers after the completed result takes ownership.
             obj.Chunks = [];
@@ -159,6 +214,8 @@ classdef OnlineAcquisitionSession < handle
         end
 
         function zeroForce(obj)
+            assert(~strcmp(obj.Config.forceSource,'recorded'), ...
+                'Recorded replay force is already calibrated; its stored baseline is preserved.');
             assert(obj.Running && ~obj.Recording, ...
                 'Zero force while acquisition is running and recording is stopped.');
             assert(~isempty(obj.LastRaw),'No force samples received yet.');
@@ -176,7 +233,7 @@ classdef OnlineAcquisitionSession < handle
         end
 
         function poll(obj)
-            if ~obj.Running, return; end
+            if ~obj.Running || obj.PollSuspended, return; end
             try
                 if toc(obj.Clock) >= obj.Config.onlineDurationSec
                     obj.stop(); return;
@@ -223,6 +280,20 @@ classdef OnlineAcquisitionSession < handle
                 emg = randn(obj.Random,numel(obj.Config.emgChannels),n);
             end
             endTime = (obj.SampleCursor+n)/obj.Config.fs;
+            if strcmp(obj.Config.forceSource,'recorded')
+                % Native-rate samples in [previous EMG time, endTime), starting at t=0.
+                finalForceIndex = min(size(obj.ReplayForce,1),ceil(endTime*obj.Config.forceFs-1e-9));
+                indices = (obj.ForceCursor+1:finalForceIndex)';
+                obj.ForceCursor = finalForceIndex;
+                force = obj.emptyForce();
+                force.data = obj.ReplayForce(indices,:);
+                force.sessionTime = (indices-1)/obj.Config.forceFs;
+                force.arduinoTime = nan(numel(indices),1); % Original device timestamps are unavailable.
+                obj.appendForce(force);
+                obj.processWindow(emg,force);
+                obj.checkRecordingLimit();
+                return;
+            end
             finalForceIndex = floor(endTime*obj.Config.forceFs);
             indices = (obj.ForceCursor+1:finalForceIndex)';
             obj.ForceCursor = finalForceIndex;
@@ -249,6 +320,16 @@ classdef OnlineAcquisitionSession < handle
     end
 
     methods (Access = private)
+        function guard = suspendPolling(obj)
+            wasSuspended = obj.PollSuspended;
+            obj.PollSuspended = true;
+            guard = onCleanup(@() obj.restorePolling(wasSuspended));
+        end
+
+        function restorePolling(obj,wasSuspended)
+            obj.PollSuspended = wasSuspended;
+        end
+
         function processWindow(obj,emg,force)
             if strcmp(obj.Config.acquisitionMode,'Simulation')
                 [pulse,spikes] = obj.syntheticSpikes();
@@ -263,6 +344,14 @@ classdef OnlineAcquisitionSession < handle
                 obj.Chunks.spikes{idx} = spikes;
                 if obj.Config.recordEMG, obj.Chunks.emg{idx} = emg; end
             end
+            if ~isempty(obj.ExperimentalTask)
+                obj.ExperimentalTask.step(spikes,(obj.SampleCursor-obj.RecordStartSample)/obj.Config.fs);
+                if isempty(obj.ExperimentalTask.Completion)
+                    obj.publishTask();
+                else
+                    obj.stopRecording();
+                end
+            end
             if ~isempty(obj.OnUpdate)
                 obj.OnUpdate(struct('time',obj.SampleCursor/obj.Config.fs, ...
                     'pulse',pulse,'spikes',spikes,'force',force,'emg',emg, ...
@@ -272,6 +361,12 @@ classdef OnlineAcquisitionSession < handle
             if every > 0 && mod(obj.SampleCursor/obj.Config.nsamp,every) == 0
                 fprintf('t = %.2f s | spikes = %s\n', ...
                     obj.SampleCursor/obj.Config.fs,mat2str(sum(spikes,1)));
+            end
+        end
+
+        function publishTask(obj)
+            if ~isempty(obj.OnTaskUpdate)
+                obj.OnTaskUpdate(obj.ExperimentalTask.snapshot(),obj.ExperimentalTask.Settings);
             end
         end
 
@@ -286,6 +381,18 @@ classdef OnlineAcquisitionSession < handle
                     globalSample-obj.LastSpike >= round(0.02*obj.Config.fs);
                 spikes(sample,:) = fired;
                 obj.LastSpike(fired) = globalSample;
+            end
+            if ~isempty(obj.ExperimentalTask)
+                task = obj.ExperimentalTask;
+                demoRate = [0 0];
+                if strcmp(task.Phase,'attempt')
+                    point = task.Targets(task.Schedule(task.Trial),:);
+                    demoRate = point.*task.Settings.referencePPS./task.Settings.gain;
+                end
+                step = min(1,demoRate/obj.Config.fs);
+                phase = obj.DemoSpikePhase + (0:n)'*step;
+                spikes(:,task.Settings.mu) = diff(floor(phase+1e-9),1,1)>0;
+                obj.DemoSpikePhase = mod(phase(end,:),1);
             end
             pulse = 0.03*randn(obj.Random,nMU,n)+double(spikes');
         end

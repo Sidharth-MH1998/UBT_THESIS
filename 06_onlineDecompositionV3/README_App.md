@@ -9,7 +9,14 @@ the app. The existing script launcher and standalone demo remain available.
   synthetic force channels. It requires no files or hardware. This exercises
   the interface and recording workflow, rather than EMG decoding accuracy.
 - **Replay calibration** processes the imported recording's EMG window by window
-  through the actual per-grid I-Spin decoders. Force is simulated. Replay ends
+  through the actual per-grid I-Spin decoders. Stored `signal.recordedForce`
+  is replayed at `signal.fs_force`, or the configured Force sampling rate
+  (default 50 Hz) when that metadata is absent. These already calibrated values
+  are not recalibrated, reversed, zeroed or smoothed again. Force timestamps are
+  reconstructed from sample order, starting at zero; original device timestamps
+  are unavailable. Force stops at its last stored sample instead of being stretched
+  to match EMG. If the file has no recorded force, force remains simulated and
+  the status message identifies it. Replay ends
   at the last complete EMG window; a shorter final window is not processed.
 - **Hardware** uses live Novecento EMG and Arduino force. Import an edited
   decomposition first, choose the Arduino port and check the grid/channel
@@ -53,18 +60,78 @@ the displayed force percentages to represent MVC percentages.
 The feedback tab contains force and live stacked EMG. In **Acquisition**, press
 **Choose** beside **Preview EMG channels** to select electrodes by grid/channel.
 The field also accepts calibration row lists (e.g. `1 65` displays G1 channel 1
-and G2 channel 1). Changing grid count defaults to the first channel of each grid.
+and G2 channel 1). Changing grid count defaults to every eighth electrode
+(`1:8:128` for two grids).
 Preview selection does not change the electrodes used for decoding or recording.
 The preview is decimated to at most 500 points/second per electrode; the shared
 DataRecording stacked-plot helper preserves raw amplitudes with vertical offsets.
+
+Uncheck **Plot live feedback** to pause the main force and EMG plots and skip
+EMG preview preparation. Acquisition, decomposition and recording continue.
+Separate feedback windows keep updating. Recheck it to resume with current data.
 
 **Raster**, **Quadrant**, and **Firing rates** create separate
 windows only when clicked. Repeated clicks
 bring the existing window forward. Closing these windows does not stop acquisition
 or recording; they can be reopened, including after acquisition has stopped.
+The Raster window has a multi-select MU list (Ctrl/Shift-click) and a
+**Select all MUs** button. Rows retain grid/MU order, from bottom to top.
+Each row has at least 28 pixels of space; the plot scrolls vertically when needed.
+Selection affects only this display, persists when reopening the window, and
+resets to all MUs when a new acquisition starts. Every MU is still decoded and recorded.
+**Experimental task** opens a separate window next to **Firing rates**.
+Choose two MUs from any grid, then check their reference rates and gains. The
+reference fields start from the imported MU rates (or example rates in
+Simulation), can be entered manually, or can be captured during a steady
+contraction. Capture uses spikes per second over the captured sample windows.
+Enter the reference force in % MVC if known; no reference force is assumed.
+The experimental cursor uses `smoothed rate / reference rate * gain` on each
+axis. The ordinary Quadrant window continues to show firing rates in pps.
+
+Start acquisition in the main window to see the live cursor and trail with
+the applied references, gains and smoothing. Use **Apply settings** to commit
+edits before starting a task. **Cursor history (s)** sets the visible trail
+duration for both preview and trials (default 1 second). This preview shows both firing
+rates in pps and does not score or start a recording. When ready, press
+**Start task** in the task window. Start task begins a separate recording block; finish any existing
+recording first. In Simulation, the two selected simulated units follow the
+rest and target cues automatically. Replay uses the stored signals, so a
+replayed contraction may not follow the experimental cues.
+
+The default protocol presents TI (1,0), TII (1,1), and TIII (0,1) ten times
+each in randomized order, with a recorded seed. The target radius is 0.10,
+the angular region starts at radius 0.40, and target and angle holds each
+require 0.875 s. Angle hits are scored separately; an active target hit or
+20 s timeout ends the attempt. A continuous 2 s hold at the origin starts
+each attempt. Timings use elapsed EMG samples and are evaluated once per
+acquisition block (128 ms by default); actual cue-to-display latency has not
+been measured on hardware. The defaults for the rate window and smoothing
+are 1 s and six estimates. Force is displayed separately and does not score
+the task.
+
+The block ends and the recording is finalized when all attempts finish or
+the task, recording or acquisition is stopped. Closing the task window
+stops its block too. Existing auto-save and **Save selected** controls apply.
+`task_data.task` contains the settings, MU identities, seeded schedule,
+per-block rates and cursor, trial times, intended and unintended hits,
+nearest misses, and the completion status. The usual spike and force data
+are saved in `task_data.fulltask_data`.
+
 Quadrant feedback starts when its window opens. Its settings panel lets you
 choose X/Y MUs by grid and MU label, set rate window, smoothing, cursor history,
-and axis maximum (`0` means automatic). Press **Apply settings** to update feedback.
+and **Reference scale** (default 1.5). Each axis is fixed at 0 to the selected MU's
+reference firing rate multiplied by this scale, following I-Spin. The cursor
+coordinates remain smoothed firing rates in pps; values are not divided by a
+reference or multiplied by a cursor gain. Different references give different
+numerical axis ranges while the plotting area stays square. The 30/60-degree
+reference lines are scaled to those separate ranges.
+Imported references use the retained MUs' `edition.mean_fr`, with missing values
+calculated as `mean(fsamp ./ diff(dischargeTimes))`. Padded MU cells are ignored.
+Simulation uses illustrative reference rates. Selected references and maxima are
+shown in Settings; recorded configuration and grid results retain the references.
+Smoothing continues to average recent raw rate estimates, rather than reproducing
+the original I-Spin recursive smoothing/startup behaviour.
+Press **Apply settings** to update feedback.
 Settings persist across popup closure and are saved in subsequent recordings.
 They are locked during recording; stop the recording first to adjust them.
 Applying changes restarts the feedback history.
@@ -78,7 +145,8 @@ unchanged I-Spin `getMUfilters`, `getonlineparameters`, and `getspikesonline`.
 
 ## Saved results and recovery
 
-Each MAT file contains `data_out` with configuration, source/calibration file
+Regular recordings contain `data_out`; experimental task recordings contain
+`task_data`. Both include configuration, source/calibration file
 references, participant/session/trial metadata, source mode, and:
 
 - `online.EMG`: selected stream electrodes, if EMG retention was enabled.

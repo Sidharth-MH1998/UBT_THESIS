@@ -2,6 +2,7 @@ classdef OnlineAppDashboard < handle
     %ONLINEAPPDASHBOARD Main plots and optional windows for every acquisition mode.
     properties
         OnQuadrantSettingsChanged = []
+        OnOpenExperimentalTask = []
     end
     properties (Access = private)
         ForceAxes
@@ -13,6 +14,7 @@ classdef OnlineAppDashboard < handle
         PulseSelector
         ForceLines
         ForceTargetLine
+        LivePlotToggle
         RasterLines
         RateLines
         PulseLine
@@ -38,6 +40,9 @@ classdef OnlineAppDashboard < handle
         RasterFigure = []
         RasterButton
         RasterReady = false
+        RasterSelection = []
+        RasterSelector = []
+        RasterViewport = []
         EMGTimes = []
         EMGData = []
         EMGRows
@@ -49,27 +54,53 @@ classdef OnlineAppDashboard < handle
         QuadrantRasterAxes = []
         QuadrantRasterLines = []
         QuadrantRasterReady = false
+        QuadrantForceAxes = []
+        QuadrantForceLines = []
+        QuadrantLayout = []
+        QuadrantSideGrid = []
+        QuadrantSettingsGrid = []
+        QuadrantReferenceSummary = []
     end
     methods
         function obj = OnlineAppDashboard(parent)
             tabs = uitabgroup(parent);
             feedback = uitab(tabs,'Title','Live feedback');
-            grid = uigridlayout(feedback,[3 1],'RowHeight',{36,'1x','1x'}, ...
+            grid = uigridlayout(feedback,[3 1],'RowHeight',{36,'2x','3x'}, ...
                 'BackgroundColor',[0.14 0.14 0.14]);
-            buttons = uigridlayout(grid,[1 4],'ColumnWidth',{140,160,180,'1x'}, ...
+            buttons = uigridlayout(grid,[1 5],'ColumnWidth',{120,130,130,150,'1x'}, ...
                 'Padding',[0 0 0 0],'BackgroundColor',[0.14 0.14 0.14]);
             obj.RasterButton = uibutton(buttons,'Text','Raster', ...
                 'Tag','openRaster','Enable','off', ...
                 'ButtonPushedFcn',@(~,~) obj.openRaster());
-            obj.QuadrantButton = uibutton(buttons,'Text','Quadrant', ...
-                'Tag','openQuadrant','Enable','off', ...
-                'ButtonPushedFcn',@(~,~) obj.openQuadrant());
             obj.RateButton = uibutton(buttons,'Text','Firing rates', ...
                 'Tag','openFiringRates','Enable','off', ...
                 'ButtonPushedFcn',@(~,~) obj.openFiringRates());
-            obj.ForceAxes = obj.makeAxes(grid,'Force (% calibrated)','Time (s)','Force (%)');
-            obj.EMGAxes = obj.makeAxes(grid,'Live EMG (stacked traces)','Time (s)','Channel');
+            obj.QuadrantButton = uibutton(buttons,'Text','Quadrant', ...
+                'Tag','openQuadrant','Enable','off', ...
+                'ButtonPushedFcn',@(~,~) obj.openQuadrant());
+            uibutton(buttons,'Text','Experimental task','Tag','openExperimentalTask', ...
+                'ButtonPushedFcn',@(~,~) obj.openExperimentalTask());
+            obj.LivePlotToggle = uicheckbox(buttons,'Text','Plot live feedback', ...
+                'Value',true,'Tag','plotLiveFeedback','FontColor',[0.9 0.9 0.9], ...
+                'Tooltip','Turn off main force and EMG drawing. Acquisition, recording and separate feedback windows continue.', ...
+                'ValueChangedFcn',@(~,~) obj.toggleLivePlotting());
+            forcePanel = uigridlayout(grid,[2 1],'RowHeight',{24,'1x'}, ...
+                'Padding',[0 0 0 0],'RowSpacing',2,'BackgroundColor',[0.14 0.14 0.14]);
+            uilabel(forcePanel,'Text','Force feedback','HorizontalAlignment','center', ...
+                'FontSize',13,'FontWeight','bold','FontColor',[0.9 0.9 0.9]);
+            obj.ForceAxes = obj.makeAxes(forcePanel,'','Time (s)','Force (% MVC)');
+            obj.ForceAxes.Tag = 'liveForceAxes';
+            emgPanel = uigridlayout(grid,[2 1],'RowHeight',{24,'1x'}, ...
+                'Padding',[0 0 0 0],'RowSpacing',2,'BackgroundColor',[0.14 0.14 0.14]);
+            uilabel(emgPanel,'Text','Live EMG (stacked traces)','HorizontalAlignment','center', ...
+                'FontSize',13,'FontWeight','bold','FontColor',[0.9 0.9 0.9]);
+            obj.EMGAxes = obj.makeAxes(emgPanel,'','Time (s)','Channel');
             obj.EMGAxes.Tag = 'liveEMGAxes';
+            for ax = [obj.ForceAxes obj.EMGAxes]
+                ax.FontSize = 12;
+                ax.XLabel.FontSize = 13;
+                ax.YLabel.FontSize = 13;
+            end
             pulseTab = uitab(tabs,'Title','Pulse trains');
             pulseGrid = uigridlayout(pulseTab,[2 1], ...
                 'RowHeight',{32,'1x'},'BackgroundColor',[0.14 0.14 0.14]);
@@ -83,6 +114,7 @@ classdef OnlineAppDashboard < handle
             obj.closeAdditionalWindows();
             obj.Config = cfg;
             obj.Labels = labels;
+            obj.RasterSelection = 1:numel(labels);
             obj.SpikeTimes = repmat({[]},1,numel(labels));
             obj.ForceTimes = zeros(0,1);
             obj.ForceData = zeros(0,3);
@@ -114,8 +146,8 @@ classdef OnlineAppDashboard < handle
                     'Color',colors(idx,:),'DisplayName',digits{idx});
             end
             legend(obj.ForceAxes,'show','TextColor',[0.9 0.9 0.9],'Color',[0.15 0.15 0.15]);
-            ylim(obj.ForceAxes,[-10 110]);
-            yticks(obj.ForceAxes,[-10 0:20:100 110]);
+            ylim(obj.ForceAxes,[-10 80]);
+            yticks(obj.ForceAxes,[-10 0:20:80]);
             obj.ForceTargetLine = yline(obj.ForceAxes,cfg.forceTargetMVC,'--', ...
                 sprintf('Target: %g%% MVC',cfg.forceTargetMVC), ...
                 'Color',[1 0.85 0.2],'LineWidth',2, ...
@@ -143,12 +175,14 @@ classdef OnlineAppDashboard < handle
             if hasEMG
                 n = size(frame.pulse,2);
                 times = ((frame.sampleCursor-n):(frame.sampleCursor-1))/cfg.fs;
-                preview = 1:obj.EMGStride:n;
-                obj.EMGTimes = [obj.EMGTimes times(preview)];
-                obj.EMGData = [obj.EMGData double(frame.emg(obj.EMGRows,preview))];
-                keepEMG = obj.EMGTimes >= frame.time-cfg.visibleWindowSec;
-                obj.EMGTimes = obj.EMGTimes(keepEMG);
-                obj.EMGData = obj.EMGData(:,keepEMG);
+                if obj.LivePlotToggle.Value
+                    preview = 1:obj.EMGStride:n;
+                    obj.EMGTimes = [obj.EMGTimes times(preview)];
+                    obj.EMGData = [obj.EMGData double(frame.emg(obj.EMGRows,preview))];
+                    keepEMG = obj.EMGTimes >= frame.time-cfg.visibleWindowSec;
+                    obj.EMGTimes = obj.EMGTimes(keepEMG);
+                    obj.EMGData = obj.EMGData(:,keepEMG);
+                end
                 obj.PulseTimes = [obj.PulseTimes times];
                 obj.Pulses = [obj.Pulses frame.pulse];
                 keep = obj.PulseTimes >= frame.time-cfg.visibleWindowSec;
@@ -190,20 +224,25 @@ classdef OnlineAppDashboard < handle
             end
             if forceNow-obj.LastRefresh < 1/cfg.forcePlotRateHz, return; end
             obj.LastRefresh = forceNow;
-            for idx = 1:3
-                set(obj.ForceLines(idx),'XData',obj.ForceTimes,'YData',obj.ForceData(:,idx));
-            end
-            xlim(obj.ForceAxes,[max(0,forceNow-cfg.forceDisplayTimeSec), ...
-                max(cfg.forceDisplayTimeSec,forceNow)+cfg.forceBufferTimeSec]);
-            if ~isempty(obj.EMGTimes)
-                previewFs = cfg.fs/obj.EMGStride;
-                firstSample = round(obj.EMGTimes(1)*previewFs)+1;
-                novecento_plot_stacked(obj.EMGAxes,obj.EMGData, ...
-                    cfg.emgPreviewChannels,previewFs,firstSample,cfg.visibleWindowSec);
-                yticklabels(obj.EMGAxes,obj.EMGLabels);
+            if obj.LivePlotToggle.Value
+                for idx = 1:3
+                    set(obj.ForceLines(idx),'XData',obj.ForceTimes,'YData',obj.ForceData(:,idx));
+                end
+                xlim(obj.ForceAxes,[max(0,forceNow-cfg.forceDisplayTimeSec), ...
+                    max(cfg.forceDisplayTimeSec,forceNow)+cfg.forceBufferTimeSec]);
+                if ~isempty(obj.EMGTimes)
+                    previewFs = cfg.fs/obj.EMGStride;
+                    firstSample = round(obj.EMGTimes(1)*previewFs)+1;
+                    novecento_plot_stacked(obj.EMGAxes,obj.EMGData, ...
+                        cfg.emgPreviewChannels,previewFs,firstSample,cfg.visibleWindowSec);
+                    yticklabels(obj.EMGAxes,obj.EMGLabels);
+                    xlim(obj.EMGAxes,[max(0,forceNow-cfg.visibleWindowSec), ...
+                        max(cfg.visibleWindowSec,forceNow)]);
+                end
             end
             obj.drawRaster();
             obj.drawQuadrantRaster();
+            obj.drawQuadrantForce();
             obj.drawRates();
             obj.drawPulse();
             drawnow limitrate nocallbacks;
@@ -211,6 +250,13 @@ classdef OnlineAppDashboard < handle
 
         function delete(obj)
             obj.closeAdditionalWindows();
+        end
+
+        function toggleLivePlotting(obj)
+            % Drop only preview history; recorded EMG belongs to the session.
+            obj.EMGTimes = [];
+            obj.EMGData = zeros(numel(obj.EMGRows),0);
+            obj.LastRefresh = -inf;
         end
 
         function setRecordingLocked(obj,locked)
@@ -228,6 +274,10 @@ classdef OnlineAppDashboard < handle
         end
     end
     methods (Access = private)
+        function openExperimentalTask(obj)
+            if ~isempty(obj.OnOpenExperimentalTask), obj.OnOpenExperimentalTask(); end
+        end
+
         function openRaster(obj)
             if ~obj.Ready, return; end
             if isgraphics(obj.RasterFigure)
@@ -236,33 +286,80 @@ classdef OnlineAppDashboard < handle
             obj.RasterReady = false;
             obj.RasterFigure = uifigure('Name','MU raster', ...
                 'Tag','OnlineAppRasterWindow','Color',[0.14 0.14 0.14], ...
-                'Position',[180 120 1000 620],'Visible','off', ...
+                'Position',[180 120 1100 680],'Visible','off','AutoResizeChildren','off', ...
                 'CloseRequestFcn',@(~,~) obj.closePopup('raster'));
-            layout = uigridlayout(obj.RasterFigure,[1 1], ...
+            layout = uigridlayout(obj.RasterFigure,[1 2], ...
+                'ColumnWidth',{190,'1x'}, ...
                 'BackgroundColor',[0.14 0.14 0.14]);
-            obj.RasterAxes = obj.makeAxes(layout,'MU raster','Time (s)','Grid / MU');
+            controls = uigridlayout(layout,[4 1], ...
+                'RowHeight',{24,36,32,'1x'},'Padding',[0 0 0 0], ...
+                'BackgroundColor',[0.14 0.14 0.14]);
+            uilabel(controls,'Text','Select motor units','FontWeight','bold', ...
+                'FontColor',[0.9 0.9 0.9]);
+            uilabel(controls,'Text','Ctrl/Shift-click to select multiple MUs.', ...
+                'WordWrap','on','FontColor',[0.8 0.8 0.8]);
+            uibutton(controls,'Text','Select all MUs','Tag','rasterSelectAll', ...
+                'ButtonPushedFcn',@(~,~) obj.selectAllRasterMUs());
+            obj.RasterSelector = uilistbox(controls,'Items',obj.Labels, ...
+                'ItemsData',1:numel(obj.Labels),'Multiselect','on', ...
+                'Value',obj.RasterSelection,'Tag','rasterMUSelector', ...
+                'ValueChangedFcn',@(~,~) obj.selectRasterMUs());
+            obj.RasterViewport = uigridlayout(layout,[1 1], ...
+                'Scrollable','on','Tag','rasterScrollViewport', ...
+                'Padding',[0 0 0 0],'BackgroundColor',[0.14 0.14 0.14]);
+            obj.RasterAxes = obj.makeAxes(obj.RasterViewport,'MU raster','Time (s)','Grid / MU');
+            obj.RasterAxes.Tag = 'rasterMUAxes';
+            obj.rebuildRaster();
+            obj.RasterFigure.SizeChangedFcn = @(~,~) obj.resizeRaster();
+            obj.RasterFigure.Visible = 'on';
+        end
+
+        function selectAllRasterMUs(obj)
+            obj.RasterSelector.Value = 1:numel(obj.Labels);
+            obj.selectRasterMUs();
+        end
+
+        function selectRasterMUs(obj)
+            obj.RasterSelection = sort(obj.RasterSelector.Value);
+            obj.rebuildRaster();
+        end
+
+        function resizeRaster(obj)
+            if ~isgraphics(obj.RasterFigure) || ~isgraphics(obj.RasterViewport), return; end
+            % Preserve at least 28 pixels per MU; scroll instead of compressing rows.
+            obj.RasterViewport.RowHeight = ...
+                {max(obj.RasterFigure.Position(4)-50,28*numel(obj.RasterSelection)+90)};
+        end
+
+        function rebuildRaster(obj)
+            obj.RasterReady = false;
+            cla(obj.RasterAxes);
             hold(obj.RasterAxes,'on');
             colors = lines(max(3,numel(obj.Labels)));
-            obj.RasterLines = gobjects(1,numel(obj.Labels));
-            for mu = 1:numel(obj.Labels)
-                obj.RasterLines(mu) = plot(obj.RasterAxes,nan,nan,'|', ...
+            selected = obj.RasterSelection;
+            obj.RasterLines = gobjects(1,numel(selected));
+            for row = 1:numel(selected)
+                mu = selected(row);
+                obj.RasterLines(row) = plot(obj.RasterAxes,nan,nan,'|', ...
                     'Color',colors(mu,:),'MarkerSize',8);
             end
-            yticks(obj.RasterAxes,1:numel(obj.Labels));
-            yticklabels(obj.RasterAxes,obj.Labels);
-            ylim(obj.RasterAxes,[0 numel(obj.Labels)+1]);
+            yticks(obj.RasterAxes,1:numel(selected));
+            yticklabels(obj.RasterAxes,obj.Labels(selected));
+            ylim(obj.RasterAxes,[0 numel(selected)+1]);
+            title(obj.RasterAxes,sprintf('MU raster (%d of %d MUs)',numel(selected),numel(obj.Labels)));
+            obj.resizeRaster();
             obj.RasterReady = true;
             obj.drawRaster();
-            obj.RasterFigure.Visible = 'on';
         end
 
         function drawRaster(obj)
             if ~obj.RasterReady || isempty(obj.RasterFigure) || ~isgraphics(obj.RasterFigure)
                 return;
             end
-            for mu = 1:numel(obj.Labels)
+            for row = 1:numel(obj.RasterSelection)
+                mu = obj.RasterSelection(row);
                 times = obj.SpikeTimes{mu};
-                set(obj.RasterLines(mu),'XData',times,'YData',mu*ones(size(times)));
+                set(obj.RasterLines(row),'XData',times,'YData',row*ones(size(times)));
             end
             xlim(obj.RasterAxes,[max(0,obj.CurrentTime-obj.Config.visibleWindowSec), ...
                 max(obj.Config.visibleWindowSec,obj.CurrentTime)]);
@@ -319,10 +416,15 @@ classdef OnlineAppDashboard < handle
                 'Position',[180 100 1060 700],'Visible','off','AutoResizeChildren','off', ...
                 'CloseRequestFcn',@(~,~) obj.closePopup('quadrant'));
             layout = uigridlayout(obj.QuadrantFigure,[1 2], ...
-                'ColumnWidth',{280,'1x'}, ...
+                'ColumnWidth',{280,'1x'},'Tag','quadrantWindowLayout', ...
                 'BackgroundColor',[0.14 0.14 0.14]);
+            obj.QuadrantLayout = layout;
             obj.createQuadrantControls(layout);
-            obj.QuadrantAxes = obj.makeAxes(layout,'Quadrant feedback','X MU (pps)','Y MU (pps)');
+            plotPanel = obj.makeQuadrantPanel(layout,'Quadrant feedback','quadrantPlotPanel');
+            plotGrid = uigridlayout(plotPanel,[1 1],'Padding',[8 8 8 8], ...
+                'BackgroundColor',[0.14 0.14 0.14]);
+            obj.QuadrantAxes = obj.makeAxes(plotGrid,'Quadrant feedback','X MU (pps)','Y MU (pps)');
+            obj.QuadrantAxes.Tag = 'quadrantActivityAxes';
             obj.rebuildQuadrant();
             obj.QuadrantFigure.SizeChangedFcn = @(~,~) obj.resizeQuadrant();
             obj.resizeQuadrant();
@@ -332,16 +434,23 @@ classdef OnlineAppDashboard < handle
         function resizeQuadrant(obj)
             if ~isgraphics(obj.QuadrantFigure) || ~isgraphics(obj.QuadrantAxes), return; end
             windowSize = obj.QuadrantFigure.Position(3:4);
-            layout = obj.QuadrantAxes.Parent;
+            layout = obj.QuadrantLayout;
             scale = min(1.25,max(0.85,0.9*min(windowSize(2)/700,windowSize(1)/1060)));
             baseWidth = 280*scale;
             % Give the raster half the spare horizontal room around the square.
             spareWidth = max(0,windowSize(1)-baseWidth-windowSize(2)-70);
             layout.ColumnWidth = {baseWidth+spareWidth/2,'1x'};
-            form = obj.QuadrantRasterAxes.Parent;
+            form = obj.QuadrantSettingsGrid;
             form.ColumnWidth = {145*scale,115*scale,'1x'};
-            form.RowHeight = [num2cell([34 34 28 28 28 28 30 40 52 200]*scale),{'1x'}];
+            settingsHeights = [34 34 28 28 28 28 30 40 52]*scale;
+            settingsHeight = sum(settingsHeights)+80*scale+42;
+            plotRoom = max(220,windowSize(2)-40-settingsHeight-30*scale);
+            rasterHeight = min(200*scale,0.4*plotRoom);
+            forceHeight = min(300*scale,0.6*plotRoom);
+            form.RowHeight = num2cell(settingsHeights);
             form.RowSpacing = 10*scale;
+            obj.QuadrantSideGrid.RowHeight = {settingsHeight,rasterHeight,forceHeight,'1x'};
+            obj.QuadrantSideGrid.RowSpacing = 10*scale;
             labels = findall(form,'-isa','matlab.ui.control.Label');
             for label = labels', label.FontSize = 10*scale; end
             names = fieldnames(obj.QuadrantControls);
@@ -354,6 +463,9 @@ classdef OnlineAppDashboard < handle
             obj.QuadrantAxes.YLabel.FontSize = 13;
             obj.QuadrantRasterAxes.FontSize = 10*scale;
             obj.QuadrantRasterAxes.XLabel.FontSize = 11*scale;
+            obj.QuadrantForceAxes.FontSize = 10*scale;
+            obj.QuadrantForceAxes.XLabel.FontSize = 11*scale;
+            obj.QuadrantForceAxes.YLabel.FontSize = 11*scale;
         end
 
         function rebuildQuadrant(obj)
@@ -377,9 +489,16 @@ classdef OnlineAppDashboard < handle
             obj.QuadrantRasterAxes.YDir = 'reverse';
             obj.QuadrantRasterReady = true;
             obj.drawQuadrantRaster();
+            obj.drawQuadrantForce();
             obj.Quadrant = struct('enabled',false);
             obj.Quadrant = ispin_quadrant_feedback('init',numel(obj.Labels), ...
                 cfg.fs,cfg.blockDurationSec,cfg,obj.QuadrantAxes);
+            if ~isempty(obj.Quadrant.referenceRates)
+                obj.QuadrantReferenceSummary.Text = sprintf( ...
+                    'X reference: %.2f pps | max: %.2f pps\nY reference: %.2f pps | max: %.2f pps\nSettings are locked while recording.', ...
+                    obj.Quadrant.referenceRates(1),obj.Quadrant.axisMaxima(1), ...
+                    obj.Quadrant.referenceRates(2),obj.Quadrant.axisMaxima(2));
+            end
             xIdentity = regexprep(obj.Labels{cfg.quadrantXMU},'MU(\d+)','MU $1');
             yIdentity = regexprep(obj.Labels{cfg.quadrantYMU},'MU(\d+)','MU $1');
             xlabel(obj.QuadrantAxes,['Motor unit 1 activity (Pulses per second): ' xIdentity], ...
@@ -396,15 +515,20 @@ classdef OnlineAppDashboard < handle
         end
 
         function createQuadrantControls(obj,parent)
-            form = uigridlayout(parent,[11 3],'ColumnWidth',{145,115,'1x'}, ...
-                'RowHeight',{34,34,28,28,28,28,30,40,52,200,'1x'}, ...
-                'Padding',[4 4 4 4],'BackgroundColor',[0.14 0.14 0.14]);
+            obj.QuadrantSideGrid = uigridlayout(parent,[4 1], ...
+                'RowHeight',{400,200,300,'1x'},'Padding',[0 0 0 0], ...
+                'BackgroundColor',[0.14 0.14 0.14]);
+            settingsPanel = obj.makeQuadrantPanel(obj.QuadrantSideGrid,'Settings','quadrantSettingsPanel');
+            form = uigridlayout(settingsPanel,[9 3],'ColumnWidth',{145,115,'1x'}, ...
+                'RowHeight',{34,34,28,28,28,28,30,40,52}, ...
+                'Padding',[8 8 8 8],'BackgroundColor',[0.14 0.14 0.14]);
+            obj.QuadrantSettingsGrid = form;
             fields = {'quadrantXMU','X-axis motor unit','mu'; ...
                 'quadrantYMU','Y-axis motor unit','mu'; ...
                 'quadrantRateWindowSec','Rate window (s)','number'; ...
                 'quadrantSmoothingWindows','Smoothing windows','number'; ...
                 'quadrantHistorySec','Cursor history (s)','number'; ...
-                'quadrantAxisMax','Axis max (0 = auto)','number'; ...
+                'quadrantAxisScale','Reference scale','number'; ...
                 'quadrantShowReferenceLines','Show reference lines','check'};
             for idx = 1:size(fields,1)
                 name = fields{idx,1};
@@ -428,6 +552,9 @@ classdef OnlineAppDashboard < handle
                         control = uieditfield(form,'numeric','Value',value);
                 end
                 control.Tag = name;
+                if strcmp(name,'quadrantAxisScale')
+                    control.Tooltip = 'I-Spin axis maximum = reference firing rate multiplied by this factor (default 1.5). Cursor values remain in pps.';
+                end
                 control.Layout.Row = idx;
                 control.Layout.Column = 2;
                 obj.QuadrantControls.(name) = control;
@@ -441,12 +568,46 @@ classdef OnlineAppDashboard < handle
                 'WordWrap','on','VerticalAlignment','top','FontColor',[0.75 0.75 0.75]);
             note.Layout.Row = 9;
             note.Layout.Column = [1 2];
-            obj.QuadrantRasterAxes = obj.makeAxes(form,'Firing of selected Motor unit','Time (s)','');
+            obj.QuadrantReferenceSummary = note;
+            rasterPanel = obj.makeQuadrantPanel(obj.QuadrantSideGrid, ...
+                'Firing of selected Motor unit','quadrantRasterPanel');
+            rasterGrid = uigridlayout(rasterPanel,[1 1],'Padding',[8 8 8 8], ...
+                'BackgroundColor',[0.14 0.14 0.14]);
+            obj.QuadrantRasterAxes = obj.makeAxes(rasterGrid,'','Time (s)','');
             obj.QuadrantRasterAxes.Tag = 'quadrantSelectedMURaster';
-            obj.QuadrantRasterAxes.Layout.Row = 10;
-            obj.QuadrantRasterAxes.Layout.Column = [1 3];
             obj.QuadrantRasterAxes.FontSize = 9;
+            forcePanel = obj.makeQuadrantPanel(obj.QuadrantSideGrid,'Force feedback','quadrantForcePanel');
+            forceGrid = uigridlayout(forcePanel,[1 1],'Padding',[8 8 8 8], ...
+                'BackgroundColor',[0.14 0.14 0.14]);
+            obj.QuadrantForceAxes = obj.makeAxes(forceGrid,'','Time (s)','Force (% MVC)');
+            obj.QuadrantForceAxes.Tag = 'quadrantForceAxes';
+            hold(obj.QuadrantForceAxes,'on');
+            obj.QuadrantForceLines = gobjects(1,3);
+            for idx = 1:3
+                obj.QuadrantForceLines(idx) = plot(obj.QuadrantForceAxes,nan,nan, ...
+                    'Color',obj.ForceLines(idx).Color, ...
+                    'DisplayName',obj.ForceLines(idx).DisplayName,'Tag','quadrantForceTrace');
+            end
+            legend(obj.QuadrantForceAxes,'show','Location','northoutside', ...
+                'Orientation','horizontal','FontSize',8, ...
+                'TextColor',[0.9 0.9 0.9],'Color',[0.15 0.15 0.15]);
+            ylim(obj.QuadrantForceAxes,[-10 80]);
+            yticks(obj.QuadrantForceAxes,[-10 0:20:80]);
+            copyobj(obj.ForceTargetLine,obj.QuadrantForceAxes);
             obj.setRecordingLocked(obj.RecordingLocked);
+        end
+
+        function drawQuadrantForce(obj)
+            if ~obj.QuadrantRasterReady || ~isgraphics(obj.QuadrantForceAxes), return; end
+            for idx = 1:3
+                set(obj.QuadrantForceLines(idx),'XData',obj.ForceTimes, ...
+                    'YData',obj.ForceData(:,idx));
+            end
+            forceNow = obj.CurrentTime;
+            if ~isempty(obj.ForceTimes), forceNow = max(forceNow,obj.ForceTimes(end)); end
+            xlim(obj.QuadrantForceAxes, ...
+                [max(0,forceNow-obj.Config.forceDisplayTimeSec), ...
+                max(obj.Config.forceDisplayTimeSec,forceNow)+obj.Config.forceBufferTimeSec]);
         end
 
         function drawQuadrantRaster(obj)
@@ -485,9 +646,13 @@ classdef OnlineAppDashboard < handle
                 end
                 validateattributes(settings.quadrantSmoothingWindows,{'numeric'}, ...
                     {'scalar','integer','finite','positive'});
-                validateattributes(settings.quadrantAxisMax,{'numeric'}, ...
-                    {'scalar','finite','nonnegative'});
-                if settings.quadrantAxisMax == 0, settings.quadrantAxisMax = []; end
+                validateattributes(settings.quadrantAxisScale,{'numeric'}, ...
+                    {'scalar','finite','positive'});
+                if isfield(obj.Config,'quadrantReferenceRates') && ~isempty(obj.Config.quadrantReferenceRates)
+                    references = obj.Config.quadrantReferenceRates([settings.quadrantXMU settings.quadrantYMU]);
+                    assert(all(isfinite(references) & references > 0), ...
+                        'Selected MUs need positive reference firing rates. Check edition.mean_fr or edited discharge times.');
+                end
                 if ~isempty(obj.OnQuadrantSettingsChanged)
                     obj.OnQuadrantSettingsChanged(settings);
                 end
@@ -547,6 +712,13 @@ classdef OnlineAppDashboard < handle
         end
     end
     methods (Static, Access = private)
+        function panel = makeQuadrantPanel(parent,titleText,tag)
+            panel = uipanel(parent,'Title',titleText,'Tag',tag, ...
+                'BorderType','line','HighlightColor',[0.4 0.4 0.4], ...
+                'BackgroundColor',[0.14 0.14 0.14], ...
+                'ForegroundColor',[0.9 0.9 0.9],'FontWeight','bold','FontSize',12);
+        end
+
         function ax = makeAxes(parent,titleText,xText,yText)
             ax = uiaxes(parent,'Color',[0.12 0.12 0.12], ...
                 'XColor',[0.85 0.85 0.85],'YColor',[0.85 0.85 0.85], ...

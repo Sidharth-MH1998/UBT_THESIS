@@ -23,9 +23,11 @@ classdef OnlineDecompositionApp < handle
         QuadrantSettings = struct('showQuadrant',true,'quadrantXMU',1, ...
             'quadrantYMU',2,'quadrantRateWindowSec',1, ...
             'quadrantSmoothingWindows',4,'quadrantHistorySec',7.5,'quadrantAxisMax',[], ...
+            'quadrantAxisScale',1.5, ...
             'quadrantShowReferenceLines',true)
         Session = []
         Dashboard
+        TaskWindow = []
         ImportButtons
         Mode
         StartButton
@@ -64,22 +66,23 @@ classdef OnlineDecompositionApp < handle
                 'BackgroundColor',background);
             uilabel(controls,'Text','BIOFEEDBACK','FontSize',22, ...
                 'FontWeight','bold','FontColor',foreground);
-            app.ImportButtons = uibutton(controls,'Text','Load separation matrix', ...
+            app.ImportButtons = uibutton(controls,'Text','Load MU filter', ...
                 'BackgroundColor',[0.22 0.22 0.22], ...
                 'FontColor',[0.80 0.50 1.0],'FontSize',15, ...
                 'ButtonPushedFcn',@(~,~) app.importDecomposition());
             app.DecompositionLabel = uilabel(controls, ...
-                'Text','No separation matrix file selected','WordWrap','on', ...
+                'Text','No MU filter file selected','WordWrap','on', ...
                 'FontColor',foreground);
             app.DecompositionSummary = uilabel(controls, ...
-                'Text','','WordWrap','on','FontColor',[0.70 0.70 0.70]);
+                'Text','','WordWrap','on','VerticalAlignment','top', ...
+                'FontColor',[0.70 0.70 0.70]);
             uilabel(controls,'Text','');
-            app.ImportButtons(2) = uibutton(controls,'Text','Load force calibration', ...
+            app.ImportButtons(2) = uibutton(controls,'Text','Load Force Calibration file', ...
                 'BackgroundColor',[0.22 0.22 0.22], ...
                 'FontColor',[0.80 0.50 1.0],'FontSize',15, ...
                 'ButtonPushedFcn',@(~,~) app.importForceCalibration());
             app.ForceLabel = uilabel(controls, ...
-                'Text','No force calibration selected','WordWrap','on', ...
+                'Text','No Force Calibration file selected','WordWrap','on', ...
                 'FontColor',foreground);
             app.ForceSummary = uilabel(controls, ...
                 'Text','','WordWrap','on','FontColor',[0.70 0.70 0.70]);
@@ -101,6 +104,7 @@ classdef OnlineDecompositionApp < handle
                 delete(app.Session);
             end
             if ~isempty(app.Dashboard) && isvalid(app.Dashboard), delete(app.Dashboard); end
+            if app.hasTaskWindow(), delete(app.TaskWindow); end
             if ~isempty(app.Figure) && isgraphics(app.Figure)
                 delete(app.Figure);
             end
@@ -164,9 +168,17 @@ classdef OnlineDecompositionApp < handle
             end
             cfg.windowBaseCols = round(values.blockDurationSec*500);
             cfg.forceCalibrationFile = app.ForceCalibrationFile;
+            cfg.decompositionFile = app.DecompositionFile;
+            if strcmp(app.Mode.Value,'Simulation')
+                cfg.quadrantReferenceRates = 12+2*(0:3*nGrids-1);
+            elseif ~isempty(fieldnames(app.CalibrationData))
+                cfg.quadrantReferenceRates = get_mu_reference_rates(app.CalibrationData);
+            else
+                cfg.quadrantReferenceRates = [];
+            end
             for name = {'forceFs','forceMaxDurationSec','forceDisplayTimeSec', ...
                     'forcePlotRateHz','visibleWindowSec','frYLim', ...
-                    'quadrantRateWindowSec','quadrantHistorySec'}
+                    'quadrantRateWindowSec','quadrantHistorySec','quadrantAxisScale'}
                 validateattributes(cfg.(name{1}),{'numeric'}, ...
                     {'scalar','positive','finite'});
             end
@@ -236,7 +248,7 @@ classdef OnlineDecompositionApp < handle
             app.Mode = uidropdown(toolbar, ...
                 'Items',{'Simulation','Replay calibration','Hardware'}, ...
                 'Value','Simulation','Tag','acquisitionMode', ...
-                'Tooltip','Simulation: synthetic signals. Replay: imported EMG through I-Spin with simulated force. Hardware: live EMG and force.');
+                'Tooltip','Simulation: synthetic signals. Replay: stored EMG through I-Spin and recorded force when available (otherwise simulated). Hardware: live EMG and force.');
             app.Mode.ValueChangedFcn = @(~,~) app.refreshMuChoices();
             app.StartButton = uibutton(toolbar,'Text','Start acquisition', ...
                 'ButtonPushedFcn',@(~,~) app.startAcquisition());
@@ -273,6 +285,7 @@ classdef OnlineDecompositionApp < handle
                 'ButtonPushedFcn',@(~,~) app.browseOutput());
             app.Dashboard = OnlineAppDashboard(workspace);
             app.Dashboard.OnQuadrantSettingsChanged = @(settings) app.updateQuadrantSettings(settings);
+            app.Dashboard.OnOpenExperimentalTask = @() app.openExperimentalTask();
             completed = uigridlayout(workspace,[1 3], ...
                 'ColumnWidth',{140,'1x',140},'Padding',[0 0 0 0]);
             uilabel(completed,'Text','Completed recordings');
@@ -320,7 +333,15 @@ classdef OnlineDecompositionApp < handle
                 app.Session.OnError = @(exception) app.sessionError(exception);
                 app.Session.start(false);
                 app.Dashboard.initialize(app.Session.Config,app.Session.Labels);
-                app.Session.OnUpdate = @(frame) app.Dashboard.update(frame);
+                app.Session.OnUpdate = @(frame) app.updateFeedback(frame);
+                app.Session.OnTaskUpdate = @(state,settings) app.updateExperimentalTask(state,settings);
+                if app.hasTaskWindow()
+                    if numel(app.Session.Labels)>=2
+                        app.TaskWindow.bindAcquisition(app.Session.Config,app.Session.Labels);
+                    else
+                        delete(app.TaskWindow);
+                    end
+                end
                 app.Session.beginPolling();
                 app.setStatus([cfg.acquisitionMode ': acquisition running; recording is OFF.']);
             catch exception
@@ -340,22 +361,73 @@ classdef OnlineDecompositionApp < handle
 
         function startRecording(app)
             try
-                metadata = struct('participant',strtrim(app.Participant.Value), ...
-                    'session',app.SessionNumber.Value,'trial',app.TrialNumber.Value, ...
-                    'decompositionFile',app.DecompositionFile, ...
-                    'forceCalibrationFile',app.ForceCalibrationFile);
-                assert(~isempty(metadata.participant),'Enter a participant ID.');
-                validateattributes(metadata.session,{'numeric'}, ...
-                    {'scalar','integer','positive','finite'});
-                validateattributes(metadata.trial,{'numeric'}, ...
-                    {'scalar','integer','positive','finite'});
-                if app.AutoSave.Value, app.ensureOutputFolder(); end
-                app.Session.startRecording(metadata);
+                app.Session.startRecording(app.recordingMetadata());
                 app.setStatus('RECORDING — use Stop recording to finish this segment.');
             catch exception
                 app.sessionError(exception);
             end
             app.syncControls();
+        end
+
+        function metadata = recordingMetadata(app)
+            metadata = struct('participant',strtrim(app.Participant.Value), ...
+                'session',app.SessionNumber.Value,'trial',app.TrialNumber.Value, ...
+                'decompositionFile',app.DecompositionFile, ...
+                'forceCalibrationFile',app.ForceCalibrationFile);
+            assert(~isempty(metadata.participant),'Enter a participant ID.');
+            validateattributes(metadata.session,{'numeric'},{'scalar','integer','positive','finite'});
+            validateattributes(metadata.trial,{'numeric'},{'scalar','integer','positive','finite'});
+            if app.AutoSave.Value, app.ensureOutputFolder(); end
+        end
+
+        function openExperimentalTask(app)
+            if app.hasTaskWindow(), figure(app.TaskWindow.Figure); return; end
+            try
+                if ~isempty(app.Session) && isvalid(app.Session) && app.Session.Running
+                    cfg = app.Session.Config;
+                    labels = app.Session.Labels;
+                else
+                    cfg = app.getConfig();
+                    if strcmp(cfg.acquisitionMode,'Simulation')
+                        counts = repmat(3,1,cfg.numberOfGrids);
+                    elseif ~isempty(cfg.quadrantReferenceRates)
+                        counts = cellfun(@(p) size(p,1),app.CalibrationData.Pulsetrain);
+                    else
+                        error('Load an MU filter file or select Simulation.');
+                    end
+                    labels = {};
+                    for g = 1:numel(counts)
+                        labels = [labels arrayfun(@(m) sprintf('G%d MU%d',g,m), ...
+                            1:counts(g),'UniformOutput',false)]; %#ok<AGROW>
+                    end
+                end
+                assert(numel(labels)>=2,'Experimental task requires at least two motor units.');
+                app.TaskWindow = ExperimentalTaskWindow(cfg,labels, ...
+                    @(settings) app.startExperimentalTask(settings),@() app.stopRecording());
+                app.syncControls();
+            catch exception
+                uialert(app.Figure,exception.message,'Experimental task');
+            end
+        end
+
+        function startExperimentalTask(app,settings)
+            assert(~app.Busy && ~isempty(app.Session) && app.Session.Running && ~app.Session.Recording, ...
+                'Start acquisition and stop any active recording first.');
+            app.Session.startExperimentalTask(settings,app.recordingMetadata());
+            app.syncControls();
+        end
+
+        function updateFeedback(app,frame)
+            if app.hasTaskWindow(), app.TaskWindow.updateFrame(frame); end
+            app.Dashboard.update(frame);
+        end
+
+        function updateExperimentalTask(app,state,settings)
+            if app.hasTaskWindow(), app.TaskWindow.updateTask(state,settings); end
+        end
+
+        function yes = hasTaskWindow(app)
+            yes = ~isempty(app.TaskWindow) && isvalid(app.TaskWindow) && isgraphics(app.TaskWindow.Figure);
         end
 
         function stopRecording(app)
@@ -424,23 +496,31 @@ classdef OnlineDecompositionApp < handle
                 app.ensureOutputFolder();
                 file = app.defaultOutputName(idx);
             end
-            data_out = app.Recordings{idx};
+            recording = app.Recordings{idx};
+            variable = 'data_out';
+            if isfield(recording,'task'), variable = 'task_data'; end
+            payload = struct(variable,recording);
             % Write a temporary file, then move it so failed writes leave prior files intact.
             folder = fileparts(file);
             temporary = [tempname(folder) '.mat'];
             cleanup = onCleanup(@() app.removeTemporary(temporary));
-            save(temporary,'data_out','-v7.3');
+            save(temporary,'-struct','payload','-v7.3');
             [ok,message] = movefile(temporary,file,'f');
             assert(ok,'%s',message);
             app.SavedFiles{idx} = file;
         end
 
         function file = defaultOutputName(app,idx)
-            metadata = app.Recordings{idx}.metadata;
+            recording = app.Recordings{idx};
+            metadata = recording.metadata;
             participant = regexprep(metadata.participant,'[^a-zA-Z0-9_-]','_');
-            stamp = char(datetime('now','Format','yyyyMMdd_HHmmss_SSS'));
-            base = sprintf('%s_s%d_t%d_%s_online',participant, ...
-                metadata.session,metadata.trial,stamp);
+            if isfield(recording,'task')
+                base = sprintf('%s_s%d_t%d_task',participant,metadata.session,metadata.trial);
+            else
+                stamp = char(datetime('now','Format','yyyyMMdd_HHmmss_SSS'));
+                base = sprintf('%s_s%d_t%d_%s_online',participant, ...
+                    metadata.session,metadata.trial,stamp);
+            end
             file = fullfile(app.OutputFolder.Value,[base '.mat']);
             suffix = 1;
             while isfile(file)
@@ -488,11 +568,14 @@ classdef OnlineDecompositionApp < handle
             recording = running && app.Session.Recording;
             idle = ~running && ~app.Busy;
             app.Dashboard.setRecordingLocked(recording || app.Busy);
+            if app.hasTaskWindow(), app.TaskWindow.setAvailable(running && ~recording && ~app.Busy); end
             app.StartButton.Enable = app.enabled(idle);
             app.StopButton.Enable = app.enabled(running && ~app.Busy);
             app.RecordButton.Enable = app.enabled(running && ~recording && ~app.Busy);
             app.StopRecordButton.Enable = app.enabled(recording);
-            app.ZeroButton.Enable = app.enabled(running && ~recording);
+            recordedReplayForce = running && isfield(app.Session.Config,'forceSource') && ...
+                strcmp(app.Session.Config.forceSource,'recorded');
+            app.ZeroButton.Enable = app.enabled(running && ~recording && ~recordedReplayForce);
             app.Mode.Enable = app.enabled(idle);
             names = fieldnames(app.Inputs);
             for idx = 1:numel(names), app.Inputs.(names{idx}).Enable = app.enabled(idle); end
@@ -556,7 +639,7 @@ classdef OnlineDecompositionApp < handle
                 'showLegend','Show MU legend',true,'check';
                 'frYLim','Firing-rate limit (Hz)',60,'number';
                 'printEveryNWindows','Print every N windows',10,'number';
-                'forceDisplayTimeSec','Force display window (s)',15,'number';
+                'forceDisplayTimeSec','Force display window (s)',10,'number';
                 'forceBufferTimeSec','Force future space (s)',5,'number';
                 'forcePlotRateHz','Force refresh rate (Hz)',10,'number';
                 'showForceTarget','Show MVC target line',true,'check';
@@ -701,7 +784,7 @@ classdef OnlineDecompositionApp < handle
         function importDecomposition(app,file)
             if nargin < 2
                 [name,folder] = uigetfile('*.mat', ...
-                    'Load separation matrix from edited decomposition result', ...
+                    'Load MU filter from edited decomposition result', ...
                     fileparts(mfilename('fullpath')));
                 if isequal(name,0), return; end
                 file = fullfile(folder,name);
@@ -740,6 +823,7 @@ classdef OnlineDecompositionApp < handle
                     'Edited pulse-train lengths or discharge-cell counts are inconsistent.');
                 signal.Pulsetrain = edition.Pulsetrain;
                 signal.Dischargetimes = edition.Dischargetimes;
+                signal.onlineMUReferenceRates = get_mu_reference_rates(signal,edition);
                 signal.onlineMUOriginalIDs = cell(1,nGrids);
                 for g = 1:nGrids
                     signal.onlineMUOriginalIDs{g} = 1:counts(g);
@@ -757,9 +841,11 @@ classdef OnlineDecompositionApp < handle
                 [~,base,extension] = fileparts(file);
                 app.DecompositionLabel.Text = [base extension];
                 app.DecompositionLabel.Tooltip = file;
+                gridDetails = sprintf('Grid %d: %d MUs\n',[1:nGrids; counts(:).']);
                 app.DecompositionSummary.Text = sprintf( ...
-                    'Separation matrix is loaded.\n%d grids | MUs per grid: %s | %g Hz', ...
-                    nGrids,mat2str(counts(:).'),signal.fsamp);
+                    'MU filter is loaded successfully.\nGrids: %d\n%sSampling rate: %g Hz', ...
+                    nGrids,gridDetails,signal.fsamp);
+                app.DecompositionSummary.Parent.RowHeight{4} = 18*(nGrids+3)+8;
                 app.Inputs.numberOfGrids.Value = nGrids;
                 app.updateGridMapping();
             catch exception
@@ -769,7 +855,7 @@ classdef OnlineDecompositionApp < handle
 
         function importForceCalibration(app,file)
             if nargin < 2
-                [name,folder] = uigetfile('*.mat','Load force calibration file', ...
+                [name,folder] = uigetfile('*.mat','Load Force Calibration file', ...
                     fileparts(mfilename('fullpath')));
                 if isequal(name,0), return; end
                 file = fullfile(folder,name);
@@ -790,7 +876,7 @@ classdef OnlineDecompositionApp < handle
                 [~,base,extension] = fileparts(file);
                 app.ForceLabel.Text = [base extension];
                 app.ForceLabel.Tooltip = file;
-                app.ForceSummary.Text = 'Force calibration is loaded successfully.';
+                app.ForceSummary.Text = 'Force Calibration file is loaded successfully.';
             catch exception
                 uialert(app.Figure,exception.message,'Force calibration import failed');
             end

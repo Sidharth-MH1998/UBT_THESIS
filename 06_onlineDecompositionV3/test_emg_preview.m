@@ -40,7 +40,7 @@ callback = button.ButtonPushedFcn;
 callback(button,[]);
 popup = findall(groot,'Tag','OnlineAppQuadrantWindow');
 raster = findall(popup,'Tag','quadrantSelectedMURaster');
-assert(isequal(cellstr(raster.YTickLabel),{'X: G1 MU2';'Y: G2 MU2'}));
+assert(isequal(cellstr(raster.YTickLabel),{'Motor unit 1';'Motor unit 2'}));
 traces = findall(raster,'Type','line');
 assert(numel(traces) == 2);
 for idx = 1:2
@@ -49,5 +49,31 @@ for idx = 1:2
     if row == 1, expected = 20/cfg.fs; else, expected = 50/cfg.fs; end
     assert(isscalar(traces(idx).XData) && abs(traces(idx).XData-expected) < 1e-12);
 end
-disp('Selected EMG electrode mapping and raw stacked preview checks passed.');
+% Suppress main drawing while incoming data still updates popup feedback.
+toggle = findall(fig,'Tag','plotLiveFeedback');
+forceAxes = findall(fig,'Tag','liveForceAxes');
+mainForce = findall(forceAxes,'Type','line');
+beforeForce = get(mainForce,'XData');
+beforeEMG = get(findall(ax,'Type','line'),'XData');
+toggle.Value = false;
+callback = toggle.ValueChangedFcn;
+callback(toggle,[]);
+frame.time = 2*n/cfg.fs;
+frame.sampleCursor = 2*n;
+frame.force = struct('data',[10 20 30],'sessionTime',frame.time);
+display.update(frame);
+assert(isequaln(get(mainForce,'XData'),beforeForce));
+assert(isequaln(get(findall(ax,'Type','line'),'XData'),beforeEMG));
+popupForce = findall(popup,'Tag','quadrantForceTrace');
+assert(popupForce(1).XData(end) == frame.time);
+toggle.Value = true;
+callback(toggle,[]);
+frame.time = 3*n/cfg.fs;
+frame.sampleCursor = 3*n;
+frame.force.sessionTime = frame.time;
+display.update(frame);
+assert(mainForce(1).XData(end) == frame.time);
+resumedEMG = findall(ax,'Type','line');
+assert(max(arrayfun(@(trace) max(trace.XData),resumedEMG)) > n/cfg.fs);
+disp('EMG preview mapping, plotting toggle and independent popup updates passed.');
 end

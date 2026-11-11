@@ -140,7 +140,10 @@ streamCfg.quadrantXMU = 1;
 streamCfg.quadrantYMU = 3;
 streamCfg.onlineDurationSec = Inf;
 streamCfg.recordEMG = true;
-streamCfg.forceFs = 50;
+streamCfg.forceFs = 25; % Source metadata must override this for recorded force.
+signal.fs_force = 50;
+forceSamples = ceil(nSamples/fs*signal.fs_force);
+signal.recordedForce = [(1:forceSamples)' -(1:forceSamples)' 3*ones(forceSamples,1)];
 streamCfg.forceMaxDurationSec = 600;
 streamCfg.extensionPositive = false;
 streamCfg.printEveryNWindows = 0;
@@ -149,6 +152,8 @@ streamCfg.forceCalibration = struct('calibrationFactors',[10 10 10], ...
 replay = OnlineAcquisitionSession(streamCfg,signal,parameters);
 cleanup = onCleanup(@() delete(replay));
 replay.start(false);
+assert(replay.Config.forceFs == 50 && strcmp(replay.Config.forceSource,'recorded'));
+expect_failure(@() replay.zeroForce(),'already calibrated');
 replay.startRecording(struct('participant','REPLAY','session',1,'trial',1));
 for window = 1:20
     if ~replay.Running, break; end
@@ -161,6 +166,13 @@ assert(size(replay.LastRecording.online.gridResults{2}.Pulsetrain,1) == 1);
 assert(size(replay.LastRecording.online.EMG,2) == floor(nSamples/256)*256);
 assert(isequal(replay.LastRecording.online.EMG, ...
     signal.data(:,1:size(replay.LastRecording.online.EMG,2))));
+forceOut = replay.LastRecording.online.force;
+expectedCount = ceil(replay.LastRecording.elapsedSec*50-1e-9);
+assert(isequal(forceOut.data,signal.recordedForce(1:expectedCount,:)));
+assert(isequal(forceOut.Time,(0:expectedCount-1)'/50));
+assert(all(isnan(forceOut.arduinoTime)));
+assert(~forceOut.simulated && replay.LastRecording.replay);
+assert(~forceOut.calibrationAppliedDuringReplay && isempty(forceOut.calibrationFactors));
 % Save an edited fixture to exercise app imports separately from file pickers.
 fixtureFolder = fullfile(fileparts(fileparts(mfilename('fullpath'))), ...
     'tmp','online_app_validation');

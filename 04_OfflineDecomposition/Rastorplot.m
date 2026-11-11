@@ -1,83 +1,106 @@
-%% Raster plot for saved decompose5 / auto-edited results
-% Use retained MUs from edition when available; false plots original signal.
-useEditedResults = true;
+%% Raster, force and instantaneous firing rate for all grids
+% signal.data defines EMG length; signal.path supplies force.
+% Prefer edition discharge times when available, otherwise use signal.
+[fileName, fileFolder] = uigetfile('*.mat','Select decomposition results');
+if isequal(fileName,0), return; end
+session = load(fullfile(fileFolder,fileName),'signal','edition');
+assert(isfield(session,'signal'),'The selected file must contain signal.');
+signal = session.signal;
+assert(all(isfield(signal,{'data','fsamp','path','Pulsetrain','Dischargetimes'})), ...
+    'Required signal fields: data, fsamp, path, Pulsetrain, Dischargetimes.');
+fs = signal.fsamp;
+validateattributes(fs,{'numeric'},{'scalar','positive','finite'});
+nSamples = size(signal.data,2);
+assert(nSamples > 0,'signal.data is empty.');
+assert(isnumeric(signal.path) && isvector(signal.path) && ...
+    numel(signal.path) == nSamples,'signal.path must match the EMG sample count.');
+assert(iscell(signal.Pulsetrain) && iscell(signal.Dischargetimes), ...
+    'Pulsetrain and Dischargetimes must be cell arrays.');
+nGrids = numel(signal.Pulsetrain);
+time = (0:nSamples-1)/fs;
 
-plotFolder = fileparts(mfilename('fullpath'));
-[fileName, fileFolder] = uigetfile('*.mat', ...
-    'Select decompose5 or auto-edited results', plotFolder);
-if isequal(fileName, 0)
-    disp('File selection cancelled.');
-    return;
-end
-rasterSession = load(fullfile(fileFolder, fileName), 'signal', 'edition');
-assert(isfield(rasterSession, 'signal'), 'File must contain signal.');
-rasterSignal = rasterSession.signal;
-assert(all(isfield(rasterSignal, ...
-    {'fsamp','data','ngrid','Dischargetimes','Pulsetrain'})), ...
-    'Expected decompose5 signal fields are missing.');
-fs = rasterSignal.fsamp;
-validateattributes(fs, {'numeric'}, {'scalar','finite','positive'});
-nSamples = size(rasterSignal.data, 2);
-assert(nSamples > 0, 'Recording has no samples.');
-
+%% Collect spikes in grid order, then saved MU-number order
 spikeTimes = {};
 muLabels = {};
-gridIDs = [];
-for gridIdx = 1:rasterSignal.ngrid
-    gridResults = rasterSignal;
-    sourceLabel = 'decomp5';
-    if useEditedResults && isfield(rasterSession, 'edition') && ...
-            isstruct(rasterSession.edition) && ...
-            isfield(rasterSession.edition, 'edited_grids') && ...
-            ismember(gridIdx, rasterSession.edition.edited_grids)
-        gridResults = rasterSession.edition;
-        sourceLabel = 'auto-edited';
+for gridIdx = 1:nGrids
+    results = signal;
+    source = 'signal';
+    if isfield(session,'edition') && isstruct(session.edition) && ...
+            all(isfield(session.edition,{'Pulsetrain','Dischargetimes'})) && ...
+            iscell(session.edition.Pulsetrain) && ...
+            iscell(session.edition.Dischargetimes) && ...
+            numel(session.edition.Pulsetrain) >= gridIdx && ...
+            size(session.edition.Dischargetimes,1) >= gridIdx
+        results = session.edition;
+        source = 'edition';
     end
-    % Pulse-train rows give the true MU count; discharge cells are padded.
-    nGridMUs = size(gridResults.Pulsetrain{gridIdx}, 1);
-    originalIDs = 1:nGridMUs;
-    statsField = sprintf('grid%d', gridIdx);
-    if strcmp(sourceLabel, 'auto-edited') && ...
-            isfield(gridResults, 'edit_stats') && ...
-            isfield(gridResults.edit_stats, statsField) && ...
-            isfield(gridResults.edit_stats.(statsField), 'quality_filter_kept_mu')
-        originalIDs = gridResults.edit_stats.(statsField).quality_filter_kept_mu;
-    end
+    % Pulsetrain rows give the MU count; discharge cells can have empty padding.
+    nGridMUs = size(results.Pulsetrain{gridIdx},1);
+    assert(size(results.Dischargetimes,1) >= gridIdx && ...
+        size(results.Dischargetimes,2) >= nGridMUs, ...
+        'Discharge cells are missing for grid %d.',gridIdx);
+    fprintf('Grid %d: %d MUs from %s.\n',gridIdx,nGridMUs,source);
     for mu = 1:nGridMUs
-        samples = gridResults.Dischargetimes{gridIdx, mu};
+        samples = results.Dischargetimes{gridIdx,mu};
         assert(isnumeric(samples) && all(isfinite(samples(:))) && ...
             all(samples(:) == round(samples(:))) && ...
             all(samples(:) >= 1 & samples(:) <= nSamples), ...
-            'Invalid discharge indices in grid %d MU %d.', gridIdx, mu);
-        samples = sort(unique(samples(:).'));
-        spikeTimes{end+1} = (samples-1)/fs;
-        muLabels{end+1} = sprintf('G%d MU%d (%d spikes, %s)', ...
-            gridIdx, originalIDs(mu), numel(samples), sourceLabel);
-        gridIDs(end+1) = gridIdx;
+            'Invalid discharge samples in grid %d MU %d.',gridIdx,mu);
+        spikeTimes{end+1} = (unique(samples(:).')-1)/fs;
+        muLabels{end+1} = sprintf('G%d MU%d',gridIdx,mu);
     end
 end
 
+%% Raster with force on the right axis
 nMUs = numel(spikeTimes);
-figure('Color','w','Name','Decompose5 MU raster plot');
-ax = axes;
-hold(ax, 'on');
-colors = lines(rasterSignal.ngrid);
+colors = lines(max(nMUs,1));
+figure('Color','w','Name','MU raster and firing rate', ...
+    'Position',[80 80 1350 800]);
+axRaster = subplot(2,1,1);
+yyaxis(axRaster,'left');
+hold(axRaster,'on');
 for mu = 1:nMUs
-    plot(ax, spikeTimes{mu}, mu*ones(size(spikeTimes{mu})), '|', ...
-        'Color', colors(gridIDs(mu),:), 'MarkerSize', 12, 'LineWidth', 1.2);
+    plot(axRaster,spikeTimes{mu},mu*ones(size(spikeTimes{mu})), ...
+        '|','Color',colors(mu,:),'MarkerSize',10,'LineWidth',1.2);
 end
-hold(ax, 'off');
-grid(ax, 'on');
-xlim(ax, [0 nSamples/fs]);
-ylim(ax, [0.5 max(nMUs,1)+0.5]);
-yticks(ax, 1:nMUs);
-yticklabels(ax, muLabels);
-set(ax, 'TickLabelInterpreter', 'none');
-xlabel(ax, 'Time (s)');
-ylabel(ax, 'Grid / motor unit');
-title(ax, sprintf('%s | %d MUs, %d spikes', fileName, nMUs, ...
-    sum(cellfun(@numel, spikeTimes))), 'Interpreter', 'none');
+hold(axRaster,'off');
+ylim(axRaster,[0.5 max(nMUs,1)+0.5]);
+yticks(axRaster,1:nMUs);
+yticklabels(axRaster,muLabels);
+set(axRaster,'YDir','reverse','YColor','k','TickLabelInterpreter','none');
+ylabel(axRaster,'Grid / motor unit');
 if nMUs == 0
-    text(ax, 0.5, 0.5, 'No motor units retained', ...
-        'Units', 'normalized', 'HorizontalAlignment', 'center');
+    text(axRaster,0.5,0.5,'No motor units retained', ...
+        'Units','normalized','HorizontalAlignment','center');
 end
+yyaxis(axRaster,'right');
+plot(axRaster,time,signal.path(:),'k-','LineWidth',1.4);
+set(axRaster,'YDir','normal','YColor','k');
+ylabel(axRaster,'Force (% MVC)');
+xlabel(axRaster,'Time (s)');
+title(axRaster,'Motor-unit raster with force');
+grid(axRaster,'on');
+
+%% Instantaneous firing rate: 1 / interspike interval, at its midpoint
+axFR = subplot(2,1,2);
+hold(axFR,'on');
+for mu = 1:nMUs
+    t = spikeTimes{mu};
+    if numel(t) < 2, continue; end
+    rate = 1./diff(t);
+    rateTime = (t(1:end-1)+t(2:end))/2;
+    plot(axFR,rateTime,rate,'.-','Color',colors(mu,:), ...
+        'MarkerSize',7,'LineWidth',0.5,'DisplayName',muLabels{mu});
+end
+hold(axFR,'off');
+xlabel(axFR,'Time (s)');
+ylabel(axFR,'Firing rate (Hz)');
+title(axFR,'Instantaneous firing rate');
+grid(axFR,'on');
+if any(cellfun(@numel,spikeTimes) >= 2)
+    legend(axFR,'Location','eastoutside','Interpreter','none','FontSize',8);
+end
+linkaxes([axRaster axFR],'x');
+xlim(axRaster,[0 max(time(end),1/fs)]);
+sgtitle(sprintf('%s | %d grids | %d MUs',fileName,nGrids,nMUs), ...
+    'Interpreter','none');

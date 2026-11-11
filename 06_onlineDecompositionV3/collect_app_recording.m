@@ -37,6 +37,19 @@ online.force.zeroValues = cfg.forceCalibration.zeroValues;
 online.force.reverseStates = cfg.forceCalibration.reverseStates;
 online.force.extensionPositive = cfg.extensionPositive;
 online.force.simulated = ~strcmp(cfg.acquisitionMode,'Hardware');
+if isfield(cfg,'forceSource')
+    online.force.source = cfg.forceSource;
+    online.force.simulated = strcmp(cfg.forceSource,'simulated');
+    if strcmp(cfg.forceSource,'recorded')
+        % Values are already calibrated in the source file. Original coefficients are unknown.
+        online.force.calibrationFactors = [];
+        online.force.zeroValues = [];
+        online.force.reverseStates = [];
+        online.force.extensionPositive = [];
+        online.force.calibrationAppliedDuringReplay = false;
+    end
+end
+out.replay = strcmp(cfg.acquisitionMode,'Replay calibration');
 online.ngrid = numel(states);
 online.muMap = zeros(nMU,2);
 online.gridResults = cell(1,numel(states));
@@ -53,6 +66,9 @@ for g = 1:numel(states)
         'extensionfactor',state.extensionfactor, ...
         'normval',state.normval,'centroid',state.centroid);
     result.Pulsetrain = online.Pulsetrain(ids,:);
+    if isfield(cfg,'quadrantReferenceRates')
+        result.referenceRatePPS = cfg.quadrantReferenceRates(ids);
+    end
     result.Distime = online.Distime(:,ids);
     result.Dischargetimes = online.Dischargetimes(ids);
     result.fr = online.fr(ids);
