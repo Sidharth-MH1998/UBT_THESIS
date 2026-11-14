@@ -64,7 +64,7 @@ end
 rateWindowCount = max(1, round(rateWindowSec / streamWindowSec));
 historyCount = max(2, round(historySec / streamWindowSec));
 
-backgroundColor = [1 1 1];
+backgroundColor = [0.98 0.975 0.96];
 textColor = [0.15 0.15 0.15];
 if nargin < 5
     fig = figure('Name','I-Spin Quadrant Feedback', ...

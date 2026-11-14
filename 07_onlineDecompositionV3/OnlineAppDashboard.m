@@ -66,9 +66,9 @@ classdef OnlineAppDashboard < handle
             tabs = uitabgroup(parent);
             feedback = uitab(tabs,'Title','Live feedback');
             grid = uigridlayout(feedback,[3 1],'RowHeight',{36,'2x','3x'}, ...
-                'BackgroundColor',[0.14 0.14 0.14]);
+                'BackgroundColor',[0.96 0.955 0.94]);
             buttons = uigridlayout(grid,[1 5],'ColumnWidth',{120,130,130,150,'1x'}, ...
-                'Padding',[0 0 0 0],'BackgroundColor',[0.14 0.14 0.14]);
+                'Padding',[0 0 0 0],'BackgroundColor',[0.96 0.955 0.94]);
             obj.RasterButton = uibutton(buttons,'Text','Raster', ...
                 'Tag','openRaster','Enable','off', ...
                 'ButtonPushedFcn',@(~,~) obj.openRaster());
@@ -81,19 +81,19 @@ classdef OnlineAppDashboard < handle
             uibutton(buttons,'Text','Experimental task','Tag','openExperimentalTask', ...
                 'ButtonPushedFcn',@(~,~) obj.openExperimentalTask());
             obj.LivePlotToggle = uicheckbox(buttons,'Text','Plot live feedback', ...
-                'Value',true,'Tag','plotLiveFeedback','FontColor',[0.9 0.9 0.9], ...
+                'Value',true,'Tag','plotLiveFeedback','FontColor',[0.12 0.12 0.12], ...
                 'Tooltip','Turn off main force and EMG drawing. Acquisition, recording and separate feedback windows continue.', ...
                 'ValueChangedFcn',@(~,~) obj.toggleLivePlotting());
             forcePanel = uigridlayout(grid,[2 1],'RowHeight',{24,'1x'}, ...
-                'Padding',[0 0 0 0],'RowSpacing',2,'BackgroundColor',[0.14 0.14 0.14]);
+                'Padding',[0 0 0 0],'RowSpacing',2,'BackgroundColor',[0.96 0.955 0.94]);
             uilabel(forcePanel,'Text','Force feedback','HorizontalAlignment','center', ...
-                'FontSize',13,'FontWeight','bold','FontColor',[0.9 0.9 0.9]);
+                'FontSize',13,'FontWeight','bold','FontColor',[0.12 0.12 0.12]);
             obj.ForceAxes = obj.makeAxes(forcePanel,'','Time (s)','Force (% MVC)');
             obj.ForceAxes.Tag = 'liveForceAxes';
             emgPanel = uigridlayout(grid,[2 1],'RowHeight',{24,'1x'}, ...
-                'Padding',[0 0 0 0],'RowSpacing',2,'BackgroundColor',[0.14 0.14 0.14]);
+                'Padding',[0 0 0 0],'RowSpacing',2,'BackgroundColor',[0.96 0.955 0.94]);
             uilabel(emgPanel,'Text','Live EMG (stacked traces)','HorizontalAlignment','center', ...
-                'FontSize',13,'FontWeight','bold','FontColor',[0.9 0.9 0.9]);
+                'FontSize',13,'FontWeight','bold','FontColor',[0.12 0.12 0.12]);
             obj.EMGAxes = obj.makeAxes(emgPanel,'','Time (s)','Channel');
             obj.EMGAxes.Tag = 'liveEMGAxes';
             for ax = [obj.ForceAxes obj.EMGAxes]
@@ -103,7 +103,7 @@ classdef OnlineAppDashboard < handle
             end
             pulseTab = uitab(tabs,'Title','Pulse trains');
             pulseGrid = uigridlayout(pulseTab,[2 1], ...
-                'RowHeight',{32,'1x'},'BackgroundColor',[0.14 0.14 0.14]);
+                'RowHeight',{32,'1x'},'BackgroundColor',[0.96 0.955 0.94]);
             obj.PulseSelector = uidropdown(pulseGrid,'Items',{'No acquisition'}, ...
                 'Enable','off','ValueChangedFcn',@(~,~) obj.drawPulse());
             obj.PulseAxes = obj.makeAxes(pulseGrid,'MU pulse train','Time (s)','Amplitude');
@@ -145,12 +145,12 @@ classdef OnlineAppDashboard < handle
                 obj.ForceLines(idx) = plot(obj.ForceAxes,nan,nan, ...
                     'Color',colors(idx,:),'DisplayName',digits{idx});
             end
-            legend(obj.ForceAxes,'show','TextColor',[0.9 0.9 0.9],'Color',[0.15 0.15 0.15]);
+            legend(obj.ForceAxes,'show','TextColor',[0.12 0.12 0.12],'Color',[0.96 0.955 0.94]);
             ylim(obj.ForceAxes,[-10 80]);
             yticks(obj.ForceAxes,[-10 0:20:80]);
             obj.ForceTargetLine = yline(obj.ForceAxes,cfg.forceTargetMVC,'--', ...
                 sprintf('Target: %g%% MVC',cfg.forceTargetMVC), ...
-                'Color',[1 0.85 0.2],'LineWidth',2, ...
+                'Color',[0.65 0.4 0],'LineWidth',2, ...
                 'LabelHorizontalAlignment','right','LabelVerticalAlignment','bottom', ...
                 'HandleVisibility','off','Tag','forceMVCTarget');
             if ~cfg.showForceTarget, obj.ForceTargetLine.Visible = 'off'; end
@@ -159,7 +159,7 @@ classdef OnlineAppDashboard < handle
             obj.PulseSelector.ItemsData = 1:numel(labels);
             obj.PulseSelector.Value = 1;
             obj.PulseSelector.Enable = 'on';
-            obj.PulseLine = plot(obj.PulseAxes,nan,nan,'Color',[0.8 0.5 1]);
+            obj.PulseLine = plot(obj.PulseAxes,nan,nan,'Color',[0.5 0.2 0.65]);
             obj.RateButton.Enable = 'on';
             obj.RasterButton.Enable = 'on';
             obj.QuadrantButton.Enable = 'off';
@@ -228,8 +228,7 @@ classdef OnlineAppDashboard < handle
                 for idx = 1:3
                     set(obj.ForceLines(idx),'XData',obj.ForceTimes,'YData',obj.ForceData(:,idx));
                 end
-                xlim(obj.ForceAxes,[max(0,forceNow-cfg.forceDisplayTimeSec), ...
-                    max(cfg.forceDisplayTimeSec,forceNow)+cfg.forceBufferTimeSec]);
+                xlim(obj.ForceAxes,obj.forceTimeLimits(forceNow,cfg.forceDisplayTimeSec));
                 if ~isempty(obj.EMGTimes)
                     previewFs = cfg.fs/obj.EMGStride;
                     firstSample = round(obj.EMGTimes(1)*previewFs)+1;
@@ -285,19 +284,19 @@ classdef OnlineAppDashboard < handle
             end
             obj.RasterReady = false;
             obj.RasterFigure = uifigure('Name','MU raster', ...
-                'Tag','OnlineAppRasterWindow','Color',[0.14 0.14 0.14], ...
+                'Tag','OnlineAppRasterWindow','Color',[0.96 0.955 0.94], ...
                 'Position',[180 120 1100 680],'Visible','off','AutoResizeChildren','off', ...
                 'CloseRequestFcn',@(~,~) obj.closePopup('raster'));
             layout = uigridlayout(obj.RasterFigure,[1 2], ...
                 'ColumnWidth',{190,'1x'}, ...
-                'BackgroundColor',[0.14 0.14 0.14]);
+                'BackgroundColor',[0.96 0.955 0.94]);
             controls = uigridlayout(layout,[4 1], ...
                 'RowHeight',{24,36,32,'1x'},'Padding',[0 0 0 0], ...
-                'BackgroundColor',[0.14 0.14 0.14]);
+                'BackgroundColor',[0.96 0.955 0.94]);
             uilabel(controls,'Text','Select motor units','FontWeight','bold', ...
-                'FontColor',[0.9 0.9 0.9]);
+                'FontColor',[0.12 0.12 0.12]);
             uilabel(controls,'Text','Ctrl/Shift-click to select multiple MUs.', ...
-                'WordWrap','on','FontColor',[0.8 0.8 0.8]);
+                'WordWrap','on','FontColor',[0.35 0.35 0.35]);
             uibutton(controls,'Text','Select all MUs','Tag','rasterSelectAll', ...
                 'ButtonPushedFcn',@(~,~) obj.selectAllRasterMUs());
             obj.RasterSelector = uilistbox(controls,'Items',obj.Labels, ...
@@ -306,7 +305,7 @@ classdef OnlineAppDashboard < handle
                 'ValueChangedFcn',@(~,~) obj.selectRasterMUs());
             obj.RasterViewport = uigridlayout(layout,[1 1], ...
                 'Scrollable','on','Tag','rasterScrollViewport', ...
-                'Padding',[0 0 0 0],'BackgroundColor',[0.14 0.14 0.14]);
+                'Padding',[0 0 0 0],'BackgroundColor',[0.96 0.955 0.94]);
             obj.RasterAxes = obj.makeAxes(obj.RasterViewport,'MU raster','Time (s)','Grid / MU');
             obj.RasterAxes.Tag = 'rasterMUAxes';
             obj.rebuildRaster();
@@ -341,7 +340,7 @@ classdef OnlineAppDashboard < handle
             for row = 1:numel(selected)
                 mu = selected(row);
                 obj.RasterLines(row) = plot(obj.RasterAxes,nan,nan,'|', ...
-                    'Color',colors(mu,:),'MarkerSize',8);
+                    'Color',colors(mu,:),'MarkerSize',8,'LineWidth',1);
             end
             yticks(obj.RasterAxes,1:numel(selected));
             yticklabels(obj.RasterAxes,obj.Labels(selected));
@@ -372,11 +371,21 @@ classdef OnlineAppDashboard < handle
             end
             obj.RateReady = false;
             obj.RateFigure = uifigure('Name','Firing rates', ...
-                'Tag','OnlineAppRateWindow','Color',[0.14 0.14 0.14], ...
+                'Tag','OnlineAppRateWindow','Color',[0.96 0.955 0.94], ...
                 'Position',[200 150 1000 600],'Visible','off', ...
                 'CloseRequestFcn',@(~,~) obj.closePopup('rates'));
-            layout = uigridlayout(obj.RateFigure,[1 1], ...
-                'BackgroundColor',[0.14 0.14 0.14]);
+            layout = uigridlayout(obj.RateFigure,[2 1],'RowHeight',{32,'1x'}, ...
+                'BackgroundColor',[0.96 0.955 0.94]);
+            settings = uigridlayout(layout,[1 4], ...
+                'ColumnWidth',{150,150,90,'1x'},'Padding',[0 0 0 0], ...
+                'BackgroundColor',[0.96 0.955 0.94]);
+            uicheckbox(settings,'Text','Show MU legend','Value',obj.Config.showLegend, ...
+                'FontColor',[0.12 0.12 0.12],'Tag','rateShowLegend', ...
+                'ValueChangedFcn',@(source,~) obj.setRateLegend(source.Value));
+            uilabel(settings,'Text','Firing-rate limit (Hz)','FontColor',[0.12 0.12 0.12]);
+            uieditfield(settings,'numeric','Value',obj.Config.frYLim, ...
+                'Limits',[0 Inf],'LowerLimitInclusive','off','Tag','rateYLimit', ...
+                'ValueChangedFcn',@(source,~) obj.setRateLimit(source.Value));
             obj.RateAxes = obj.makeAxes(layout,'Instantaneous firing rates','Time (s)','Hz');
             hold(obj.RateAxes,'on');
             colors = lines(max(3,numel(obj.Labels)));
@@ -387,8 +396,8 @@ classdef OnlineAppDashboard < handle
             end
             ylim(obj.RateAxes,[0 obj.Config.frYLim]);
             if obj.Config.showLegend
-                legend(obj.RateAxes,'show','TextColor',[0.9 0.9 0.9], ...
-                    'Color',[0.15 0.15 0.15],'FontSize',9);
+                legend(obj.RateAxes,'show','TextColor',[0.12 0.12 0.12], ...
+                    'Color',[0.96 0.955 0.94],'FontSize',9);
             end
             obj.RateReady = true;
             obj.drawRates();
@@ -405,6 +414,21 @@ classdef OnlineAppDashboard < handle
                 max(obj.Config.visibleWindowSec,obj.CurrentTime)]);
         end
 
+        function setRateLegend(obj,show)
+            obj.Config.showLegend = show;
+            if show
+                legend(obj.RateAxes,'show','TextColor',[0.12 0.12 0.12], ...
+                    'Color',[0.96 0.955 0.94],'FontSize',9);
+            else
+                legend(obj.RateAxes,'off');
+            end
+        end
+
+        function setRateLimit(obj,limit)
+            obj.Config.frYLim = limit;
+            ylim(obj.RateAxes,[0 limit]);
+        end
+
         function openQuadrant(obj)
             if ~obj.Ready || numel(obj.Labels) < 2, return; end
             if isgraphics(obj.QuadrantFigure)
@@ -412,17 +436,17 @@ classdef OnlineAppDashboard < handle
             end
             obj.QuadrantReady = false;
             obj.QuadrantFigure = uifigure('Name','Quadrant feedback', ...
-                'Tag','OnlineAppQuadrantWindow','Color',[0.14 0.14 0.14], ...
+                'Tag','OnlineAppQuadrantWindow','Color',[0.96 0.955 0.94], ...
                 'Position',[180 100 1060 700],'Visible','off','AutoResizeChildren','off', ...
                 'CloseRequestFcn',@(~,~) obj.closePopup('quadrant'));
             layout = uigridlayout(obj.QuadrantFigure,[1 2], ...
                 'ColumnWidth',{280,'1x'},'Tag','quadrantWindowLayout', ...
-                'BackgroundColor',[0.14 0.14 0.14]);
+                'BackgroundColor',[0.96 0.955 0.94]);
             obj.QuadrantLayout = layout;
             obj.createQuadrantControls(layout);
             plotPanel = obj.makeQuadrantPanel(layout,'Quadrant feedback','quadrantPlotPanel');
             plotGrid = uigridlayout(plotPanel,[1 1],'Padding',[8 8 8 8], ...
-                'BackgroundColor',[0.14 0.14 0.14]);
+                'BackgroundColor',[0.96 0.955 0.94]);
             obj.QuadrantAxes = obj.makeAxes(plotGrid,'Quadrant feedback','X MU (pps)','Y MU (pps)');
             obj.QuadrantAxes.Tag = 'quadrantActivityAxes';
             obj.rebuildQuadrant();
@@ -517,11 +541,11 @@ classdef OnlineAppDashboard < handle
         function createQuadrantControls(obj,parent)
             obj.QuadrantSideGrid = uigridlayout(parent,[4 1], ...
                 'RowHeight',{400,200,300,'1x'},'Padding',[0 0 0 0], ...
-                'BackgroundColor',[0.14 0.14 0.14]);
+                'BackgroundColor',[0.96 0.955 0.94]);
             settingsPanel = obj.makeQuadrantPanel(obj.QuadrantSideGrid,'Settings','quadrantSettingsPanel');
             form = uigridlayout(settingsPanel,[9 3],'ColumnWidth',{145,115,'1x'}, ...
                 'RowHeight',{34,34,28,28,28,28,30,40,52}, ...
-                'Padding',[8 8 8 8],'BackgroundColor',[0.14 0.14 0.14]);
+                'Padding',[8 8 8 8],'BackgroundColor',[0.96 0.955 0.94]);
             obj.QuadrantSettingsGrid = form;
             fields = {'quadrantXMU','X-axis motor unit','mu'; ...
                 'quadrantYMU','Y-axis motor unit','mu'; ...
@@ -533,7 +557,7 @@ classdef OnlineAppDashboard < handle
             for idx = 1:size(fields,1)
                 name = fields{idx,1};
                 label = uilabel(form,'Text',fields{idx,2},'WordWrap','on', ...
-                    'FontColor',[0.9 0.9 0.9]);
+                    'FontColor',[0.12 0.12 0.12]);
                 label.Layout.Row = idx;
                 label.Layout.Column = 1;
                 if isfield(obj.Config,name)
@@ -565,20 +589,20 @@ classdef OnlineAppDashboard < handle
             obj.QuadrantApplyButton.Layout.Column = [1 2];
             note = uilabel(form,'Text', ...
                 'Settings are locked while recording. Applying settings restarts the feedback history.', ...
-                'WordWrap','on','VerticalAlignment','top','FontColor',[0.75 0.75 0.75]);
+                'WordWrap','on','VerticalAlignment','top','FontColor',[0.35 0.35 0.35]);
             note.Layout.Row = 9;
             note.Layout.Column = [1 2];
             obj.QuadrantReferenceSummary = note;
             rasterPanel = obj.makeQuadrantPanel(obj.QuadrantSideGrid, ...
                 'Firing of selected Motor unit','quadrantRasterPanel');
             rasterGrid = uigridlayout(rasterPanel,[1 1],'Padding',[8 8 8 8], ...
-                'BackgroundColor',[0.14 0.14 0.14]);
+                'BackgroundColor',[0.96 0.955 0.94]);
             obj.QuadrantRasterAxes = obj.makeAxes(rasterGrid,'','Time (s)','');
             obj.QuadrantRasterAxes.Tag = 'quadrantSelectedMURaster';
             obj.QuadrantRasterAxes.FontSize = 9;
             forcePanel = obj.makeQuadrantPanel(obj.QuadrantSideGrid,'Force feedback','quadrantForcePanel');
             forceGrid = uigridlayout(forcePanel,[1 1],'Padding',[8 8 8 8], ...
-                'BackgroundColor',[0.14 0.14 0.14]);
+                'BackgroundColor',[0.96 0.955 0.94]);
             obj.QuadrantForceAxes = obj.makeAxes(forceGrid,'','Time (s)','Force (% MVC)');
             obj.QuadrantForceAxes.Tag = 'quadrantForceAxes';
             hold(obj.QuadrantForceAxes,'on');
@@ -590,7 +614,7 @@ classdef OnlineAppDashboard < handle
             end
             legend(obj.QuadrantForceAxes,'show','Location','northoutside', ...
                 'Orientation','horizontal','FontSize',8, ...
-                'TextColor',[0.9 0.9 0.9],'Color',[0.15 0.15 0.15]);
+                'TextColor',[0.12 0.12 0.12],'Color',[0.96 0.955 0.94]);
             ylim(obj.QuadrantForceAxes,[-10 80]);
             yticks(obj.QuadrantForceAxes,[-10 0:20:80]);
             copyobj(obj.ForceTargetLine,obj.QuadrantForceAxes);
@@ -606,8 +630,7 @@ classdef OnlineAppDashboard < handle
             forceNow = obj.CurrentTime;
             if ~isempty(obj.ForceTimes), forceNow = max(forceNow,obj.ForceTimes(end)); end
             xlim(obj.QuadrantForceAxes, ...
-                [max(0,forceNow-obj.Config.forceDisplayTimeSec), ...
-                max(obj.Config.forceDisplayTimeSec,forceNow)+obj.Config.forceBufferTimeSec]);
+                obj.forceTimeLimits(forceNow,obj.Config.forceDisplayTimeSec));
         end
 
         function drawQuadrantRaster(obj)
@@ -712,19 +735,25 @@ classdef OnlineAppDashboard < handle
         end
     end
     methods (Static, Access = private)
+        function limits = forceTimeLimits(now,window)
+            % Begin scrolling at the midpoint, retaining half a window ahead.
+            startTime = max(0,now-window/2);
+            limits = [startTime startTime+window];
+        end
+
         function panel = makeQuadrantPanel(parent,titleText,tag)
             panel = uipanel(parent,'Title',titleText,'Tag',tag, ...
-                'BorderType','line','HighlightColor',[0.4 0.4 0.4], ...
-                'BackgroundColor',[0.14 0.14 0.14], ...
-                'ForegroundColor',[0.9 0.9 0.9],'FontWeight','bold','FontSize',12);
+                'BorderType','line','HighlightColor',[0.7 0.7 0.7], ...
+                'BackgroundColor',[0.96 0.955 0.94], ...
+                'ForegroundColor',[0.12 0.12 0.12],'FontWeight','bold','FontSize',12);
         end
 
         function ax = makeAxes(parent,titleText,xText,yText)
-            ax = uiaxes(parent,'Color',[0.12 0.12 0.12], ...
-                'XColor',[0.85 0.85 0.85],'YColor',[0.85 0.85 0.85], ...
-                'GridColor',[0.4 0.4 0.4]);
+            ax = uiaxes(parent,'Color',[0.98 0.975 0.96], ...
+                'XColor',[0.15 0.15 0.15],'YColor',[0.15 0.15 0.15], ...
+                'GridColor',[0.65 0.65 0.65]);
             grid(ax,'on');
-            title(ax,titleText,'Color',[0.9 0.9 0.9]);
+            title(ax,titleText,'Color',[0.12 0.12 0.12]);
             xlabel(ax,xText); ylabel(ax,yText);
         end
     end

@@ -1,6 +1,7 @@
 classdef ExperimentalTaskWindow < handle
     properties (SetAccess=private)
         Figure
+        FeedbackFigure
     end
     properties (Access=private)
         Controls = struct()
@@ -43,6 +44,8 @@ classdef ExperimentalTaskWindow < handle
         LastAuxRefresh = -Inf
         LastPhase = ''
         PreviewStatus
+        QuadrantStatus
+        QuadrantInstruction
         PreviewSettings = []
         PreviewRates = []
         PreviewTimes = []
@@ -55,14 +58,19 @@ classdef ExperimentalTaskWindow < handle
             obj.References = cfg.quadrantReferenceRates;
             obj.OnStart = onStart;
             obj.OnStop = onStop;
-            bg = [0.14 0.14 0.14];
-            fg = [0.93 0.93 0.93];
-            obj.Figure = uifigure('Name','Experimental task','Tag','onlineExperimentalTask', ...
-                'Position',[100 80 1250 800],'Color',bg,'Visible','off', ...
+            bg = [0.96 0.955 0.94];
+            fg = [0.12 0.12 0.12];
+            obj.Figure = uifigure('Name','Experiment settings','Tag','onlineExperimentalTask', ...
+                'Position',[60 80 400 800],'Color',bg,'Visible','off', ...
                 'CloseRequestFcn',@(~,~) obj.close());
-            layout = uigridlayout(obj.Figure,[1 3],'ColumnWidth',{340,'1x','3x'}, ...
+            obj.FeedbackFigure = uifigure('Name','Realtime Quadrant feedback','Tag','onlineExperimentalFeedback', ...
+                'Position',[480 80 1150 800],'Color',bg,'Visible','off', ...
+                'CloseRequestFcn',@(~,~) obj.close());
+            settingsLayout = uigridlayout(obj.Figure,[1 1],'BackgroundColor',bg);
+            layout = uigridlayout(obj.FeedbackFigure,[1 2],'ColumnWidth',{'1x','3x'}, ...
                 'ColumnSpacing',12,'BackgroundColor',bg);
-            panel = uipanel(layout,'Title','Experiment settings','BackgroundColor',bg,'ForegroundColor',fg);
+            panel = uipanel(settingsLayout,'Title','Experiment settings','BackgroundColor',bg, ...
+                'ForegroundColor',fg,'BorderType','line','HighlightColor',[0.7 0.7 0.7]);
             feedback = uigridlayout(layout,[3 1],'RowHeight',{'5x','2x','3x'}, ...
                 'Padding',[0 0 0 0],'BackgroundColor',bg);
             left = uigridlayout(panel,[4 1],'RowHeight',{36,32,'1x',32},'BackgroundColor',bg);
@@ -135,7 +143,7 @@ classdef ExperimentalTaskWindow < handle
             obj.Controls.randomize.Tooltip = 'Checked: shuffle the trials. Unchecked: repeat TI, TII, TIII in order.';
             obj.Controls.rateWindow.Tooltip = sprintf('Acquisition block: %.0f ms. Rates and scoring update once per block.',1000*cfg.blockDurationSec);
             information = uipanel(feedback,'Title','Info','BorderType','line', ...
-                'HighlightColor',[0.4 0.4 0.4],'BackgroundColor',bg,'ForegroundColor',fg);
+                'HighlightColor',[0.7 0.7 0.7],'BackgroundColor',bg,'ForegroundColor',fg);
             information.Layout.Row = 1;
             statusPanel = uigridlayout(information,[3 1],'RowHeight',{104,48,'1x'}, ...
                 'Padding',[6 6 6 6],'RowSpacing',4,'BackgroundColor',bg);
@@ -145,20 +153,17 @@ classdef ExperimentalTaskWindow < handle
             obj.PreviewStatus = uilabel(statusPanel,'Text','Live preview starts with acquisition.', ...
                 'WordWrap','on','VerticalAlignment','top','FontColor',fg,'Tag','experimentalPreviewStatus');
             [ax,quadrantPanel] = obj.makePlotPanel(layout,'Task Quadrant','','',bg,fg,24);
-            quadrantPanel.Layout.Column = 3;
+            quadrantPanel.Layout.Column = 2;
             quadrantGrid = ax.Parent;
-            quadrantGrid.RowHeight = {24,'1x',106};
-            timerPanel = uigridlayout(quadrantGrid,[4 1],'RowHeight',{26,32,20,20}, ...
+            quadrantGrid.RowHeight = {24,'1x',72};
+            timerPanel = uigridlayout(quadrantGrid,[3 1],'RowHeight',{26,20,20}, ...
                 'RowSpacing',2,'Padding',[4 0 4 0],'BackgroundColor',bg);
             timerPanel.Layout.Row = 3;
-            obj.TaskInstruction = uilabel(timerPanel,'Text','Use the live preview to practise moving the cursor.', ...
+            obj.TaskInstruction = uilabel(timerPanel,'Text','Use the live preview to practice moving the cursor.', ...
                 'WordWrap','on','FontColor',fg,'FontSize',16,'FontWeight','bold');
-            uilabel(timerPanel,'Text',['Increase motor unit 1 activity to move right.  ' ...
-                'Increase motor unit 2 activity to move up.'], ...
-                'WordWrap','on','FontColor',fg,'FontWeight','bold');
             obj.TrialTimeLabel = uilabel(timerPanel,'Text','Trial time left: —', ...
                 'FontColor',fg,'FontWeight','bold');
-            trackColor = [0.26 0.26 0.26];
+            trackColor = [0.88 0.88 0.88];
             obj.TrialTimeBar = uigridlayout(timerPanel,[1 2],'ColumnWidth',{1,'1x'}, ...
                 'Padding',[0 0 0 0],'ColumnSpacing',0,'BackgroundColor',trackColor);
             obj.TrialTimeFill = uipanel(obj.TrialTimeBar,'BorderType','none', ...
@@ -185,10 +190,23 @@ classdef ExperimentalTaskWindow < handle
                     'Visible','off','UserData',theta);
             end
             obj.Origin = plot(ax,0.1*cos(theta),0.1*sin(theta),'--', ...
-                'Color',[0.25 0.65 1],'LineWidth',1.5);
-            obj.Trail = plot(ax,NaN,NaN,'LineWidth',2,'Color',[0.65 0.65 0.65]);
-            obj.Cursor = plot(ax,NaN,NaN,'o','MarkerSize',10, ...
+                'Color',[0.1 0.4 0.85],'LineWidth',1.5);
+            obj.Trail = plot(ax,NaN,NaN,'LineWidth',5,'Color',[0.48 0.48 0.48]);
+            obj.Cursor = plot(ax,NaN,NaN,'o','MarkerSize',15, ...
                 'MarkerFaceColor',[1 0.2 0.2],'MarkerEdgeColor','none','Tag','experimentalCursor');
+            obj.QuadrantStatus = text(ax,0.02,0.98,'Live preview starts with acquisition.', ...
+                'Units','normalized','HorizontalAlignment','left','VerticalAlignment','top', ...
+                'FontSize',16,'FontWeight','bold','Color',fg, ...
+                'BackgroundColor',[0.98 0.975 0.96],'Margin',5,'Interpreter','none', ...
+                'Clipping','on','HitTest','off','PickableParts','none', ...
+                'HandleVisibility','off','Tag','experimentalQuadrantStatus');
+            obj.QuadrantInstruction = text(ax,0.02,0.88, ...
+                {'Use the live preview to practice';'moving the cursor.'}, ...
+                'Units','normalized','HorizontalAlignment','left','VerticalAlignment','top', ...
+                'FontSize',18,'FontWeight','bold','Color',[0.25 0.25 0.25], ...
+                'BackgroundColor',[0.98 0.975 0.96],'Margin',5,'Interpreter','none', ...
+                'Clipping','on','HitTest','off','PickableParts','none', ...
+                'HandleVisibility','off','Tag','experimentalQuadrantInstruction');
             [obj.RasterAxes,rasterPanel] = obj.makePlotPanel(feedback, ...
                 'Firing of selected motor units','Time (s)','',bg,fg,36);
             rasterPanel.Layout.Row = 2;
@@ -197,7 +215,9 @@ classdef ExperimentalTaskWindow < handle
             ylim(obj.RasterAxes,[0.5 2.5]); yticks(obj.RasterAxes,[1 2]);
             yticklabels(obj.RasterAxes,{'X MU','Y MU'});
             obj.RasterLines = gobjects(1,2);
-            for k = 1:2, obj.RasterLines(k) = plot(obj.RasterAxes,NaN,NaN,'|'); end
+            for k = 1:2
+                obj.RasterLines(k) = plot(obj.RasterAxes,NaN,NaN,'|','LineWidth',1);
+            end
             [obj.ForceAxes,forcePanel] = obj.makePlotPanel(feedback, ...
                 'Force feedback','Time (s)','Force (% MVC)',bg,fg,24);
             forcePanel.Layout.Row = 3;
@@ -211,7 +231,7 @@ classdef ExperimentalTaskWindow < handle
             end
             legend(obj.ForceAxes,obj.ForceLines,'Location','northeast', ...
                 'TextColor',fg,'Color',bg,'FontSize',8);
-            yline(obj.ForceAxes,0,'-','0% MVC','Color',[0.8 0.8 0.8], ...
+            yline(obj.ForceAxes,0,'-','0% MVC','Color',[0.35 0.35 0.35], ...
                 'LineWidth',1.25,'LabelHorizontalAlignment','left', ...
                 'LabelVerticalAlignment','bottom','HandleVisibility','off');
             obj.updateForceTarget(cfg);
@@ -219,6 +239,16 @@ classdef ExperimentalTaskWindow < handle
             obj.updateAxisLabels();
             obj.sync();
             obj.Figure.Visible = 'on';
+            obj.FeedbackFigure.Visible = 'on';
+        end
+
+        function show(obj)
+            figure(obj.Figure);
+            figure(obj.FeedbackFigure);
+        end
+
+        function yes = isOpen(obj)
+            yes = isgraphics(obj.Figure) && isgraphics(obj.FeedbackFigure);
         end
 
         function setAvailable(obj,available)
@@ -337,6 +367,11 @@ classdef ExperimentalTaskWindow < handle
             obj.Active = isempty(state.completion);
             if obj.Active ~= wasActive, obj.resetPreview(); end
             obj.PreviewStatus.Visible = obj.onOff(~obj.Active);
+            obj.QuadrantStatus.Visible = 'on';
+            obj.QuadrantStatus.String = sprintf('Live rates | X: %.1f pps   Y: %.1f pps',state.rates);
+            if any(state.cursor>MotorUnitTargetTask.AxisMax) || any(state.cursor < -0.12)
+                obj.QuadrantStatus.String = sprintf('%s\nCursor outside plot range',obj.QuadrantStatus.String);
+            end
             targets = MotorUnitTargetTask.Targets;
             set(obj.Cursor,'XData',state.cursor(1),'YData',state.cursor(2));
             set(obj.Trail,'XData',state.trail(:,1),'YData',state.trail(:,2));
@@ -350,7 +385,7 @@ classdef ExperimentalTaskWindow < handle
                     theta = obj.TargetShapes(k).UserData;
                     center = targets(k,:);
                     targetColor = [1 0.2 0.2];
-                    if successfulTarget, targetColor = [0.25 0.85 0.45]; end
+                    if successfulTarget, targetColor = [0.05 0.55 0.2]; end
                     set(obj.TargetShapes(k),'XData',center(1)+settings.targetRadius*cos(theta), ...
                         'YData',center(2)+settings.targetRadius*sin(theta),'Color',targetColor);
                 end
@@ -403,6 +438,7 @@ classdef ExperimentalTaskWindow < handle
 
         function delete(obj)
             if isgraphics(obj.Figure), delete(obj.Figure); end
+            if isgraphics(obj.FeedbackFigure), delete(obj.FeedbackFigure); end
         end
     end
     methods (Access=private)
@@ -411,7 +447,7 @@ classdef ExperimentalTaskWindow < handle
             if cfg.showForceTarget
                 yline(obj.ForceAxes,cfg.forceTargetMVC,'--', ...
                     sprintf('Target: %g%% MVC',cfg.forceTargetMVC), ...
-                    'Color',[1 0.85 0.2],'LineWidth',1.5, ...
+                    'Color',[0.65 0.4 0],'LineWidth',1.5, ...
                     'LabelHorizontalAlignment','right','LabelVerticalAlignment','top', ...
                     'HandleVisibility','off','Tag','taskForceTarget');
             end
@@ -426,16 +462,20 @@ classdef ExperimentalTaskWindow < handle
                     targets = MotorUnitTargetTask.Targets;
                     if norm(state.cursor-targets(state.target,:)) <= settings.targetRadius
                         obj.TaskInstruction.Text = 'Hold the cursor inside the target circle.';
+                        obj.QuadrantInstruction.String = {'Hold the cursor inside';'the target circle.'};
                     else
                         obj.TaskInstruction.Text = 'Move the cursor to the target circle.';
+                        obj.QuadrantInstruction.String = {'Move the cursor to';'the target circle.'};
                     end
                 case 'rest'
                     duration = settings.restTime;
                     remaining = duration-state.restHeld;
                     label = 'Rest at origin time left';
                     obj.TaskInstruction.Text = 'Return to the origin and rest inside the blue circle.';
+                    obj.QuadrantInstruction.String = {'Return to the origin.';'Rest inside the blue circle.'};
                 otherwise
                     obj.TaskInstruction.Text = 'Task ended. Relax at the origin.';
+                    obj.QuadrantInstruction.String = {'Task ended.';'Relax at the origin.'};
                     obj.TrialTimeLabel.Text = 'Trial time left: —';
                     obj.TrialTimeFill.Visible = 'off';
                     return;
@@ -467,6 +507,7 @@ classdef ExperimentalTaskWindow < handle
                 set(obj.Cursor,'XData',NaN,'YData',NaN);
                 set(obj.Trail,'XData',NaN,'YData',NaN);
                 obj.PreviewStatus.Text = 'Preview: choose distinct MUs and valid rates, gains and smoothing.';
+                obj.QuadrantStatus.String = {'Live preview';'Check the MU and rate settings.'};
                 return;
             end
             if ~isequal(values,obj.PreviewSettings)
@@ -485,8 +526,10 @@ classdef ExperimentalTaskWindow < handle
             set(obj.Cursor,'XData',p(1),'YData',p(2));
             set(obj.Trail,'XData',obj.PreviewTrail(:,1),'YData',obj.PreviewTrail(:,2));
             obj.PreviewStatus.Text = sprintf('Live preview  |  X: %.1f pps   Y: %.1f pps',rate);
+            obj.QuadrantStatus.String = sprintf('Live preview | X: %.1f pps   Y: %.1f pps',rate);
             if any(p>MotorUnitTargetTask.AxisMax)
                 obj.PreviewStatus.Text = [obj.PreviewStatus.Text '  |  Cursor outside plot range'];
+                obj.QuadrantStatus.String = sprintf('%s\nCursor outside plot range',obj.QuadrantStatus.String);
             end
         end
 
@@ -584,10 +627,10 @@ classdef ExperimentalTaskWindow < handle
 
         function updateAxisLabels(obj)
             identities = obj.AppliedSettings.muLabels;
-            xlabel(obj.TaskAxes,['Activity of motor unit 1 (normalised) : ' identities{1}], ...
-                'FontSize',18,'FontWeight','bold');
-            ylabel(obj.TaskAxes,['Activity of motor unit 2 (normalised) : ' identities{2}], ...
-                'FontSize',18,'FontWeight','bold');
+            xlabel(obj.TaskAxes,['Activity of motor unit 1 : ' identities{1}], ...
+                'FontSize',23,'FontWeight','bold');
+            ylabel(obj.TaskAxes,['Activity of motor unit 2 : ' identities{2}], ...
+                'FontSize',23,'FontWeight','bold');
         end
 
         function markManual(obj,axisIndex)
@@ -613,7 +656,7 @@ classdef ExperimentalTaskWindow < handle
     end
     methods (Static,Access=private)
         function [ax,panel] = makePlotPanel(parent,name,x,y,bg,fg,headingHeight)
-            panel = uipanel(parent,'BorderType','line','HighlightColor',[0.4 0.4 0.4], ...
+            panel = uipanel(parent,'BorderType','line','HighlightColor',[0.7 0.7 0.7], ...
                 'BackgroundColor',bg);
             grid = uigridlayout(panel,[2 1],'RowHeight',{headingHeight,'1x'}, ...
                 'Padding',[4 2 4 2],'RowSpacing',2,'BackgroundColor',bg);
@@ -623,8 +666,9 @@ classdef ExperimentalTaskWindow < handle
         end
 
         function ax = makeAxes(parent,x,y)
-            ax = uiaxes(parent,'Color',[0.1 0.1 0.1],'XColor',[0.9 0.9 0.9], ...
-                'YColor',[0.9 0.9 0.9],'GridColor',[0.5 0.5 0.5]);
+            ax = uiaxes(parent,'Color',[0.98 0.975 0.96],'XColor',[0.15 0.15 0.15], ...
+                'YColor',[0.15 0.15 0.15],'GridColor',[0.65 0.65 0.65], ...
+                'ColorOrder',[0 0.447 0.741;0.85 0.325 0.098;0.65 0.45 0.05]);
             xlabel(ax,x); ylabel(ax,y); grid(ax,'on'); hold(ax,'on');
         end
 

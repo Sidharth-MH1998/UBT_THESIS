@@ -39,6 +39,12 @@ outputFolder.Value = folder;
 click(findall(app.Figure,'Tag','openExperimentalTask'));
 window = findall(groot,'Tag','onlineExperimentalTask');
 assert(isscalar(window));
+feedback = findall(groot,'Tag','onlineExperimentalFeedback');
+assert(isscalar(feedback));
+assert(isempty(findall(feedback,'Tag','startExperimentalTask')));
+assert(isempty(findall(window,'Tag','experimentalCursor')));
+click(findall(app.Figure,'Tag','openExperimentalTask'));
+assert(isscalar(findall(groot,'Tag','onlineExperimentalFeedback')));
 start = findall(window,'Tag','startExperimentalTask');
 assert(strcmp(start.Enable,'off'));
 setValue('targetHold',0.256);
@@ -55,7 +61,7 @@ setValue('cursorHistory',2.5);
 click(findall(window,'Tag','applyExperimentalTaskSettings'));
 click(findall(app.Figure,'Text','Start acquisition'));
 assert(strcmp(start.Enable,'on'));
-cursor = findall(window,'Tag','experimentalCursor');
+cursor = findall(feedback,'Tag','experimentalCursor');
 clock = tic;
 while ~isfinite(cursor.XData) && toc(clock)<10
     pause(0.05);
@@ -86,6 +92,11 @@ assert(~isempty(saved.task_data.fulltask_data.Pulsetrain));
 click(findall(app.Figure,'Text','Stop acquisition'));
 root = fileparts(fileparts(mfilename('fullpath')));
 exportapp(window,fullfile(root,'tmp','experimental_task_preview.png'));
+feedback.Position = [20 20 1500 900];
+drawnow;
+exportapp(feedback,fullfile(root,'tmp','experimental_feedback_preview.png'));
+close(feedback);
+assert(~isgraphics(window) && isempty(findall(groot,'Tag','onlineExperimentalFeedback')));
 
 % Check the default-length simulation with real session buffers, without a timer.
 cfg = app.getConfig();

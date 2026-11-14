@@ -3,6 +3,8 @@
 Run `StartOnlineApp` from this folder. The workspace variable `onlineApp` holds
 the app. The existing script launcher and standalone demo remain available.
 
+The main app and feedback windows use a soft off-white theme with dark labels.
+
 ## Sources
 
 - **Simulation** generates three synthetic MUs per configured grid and three
@@ -44,7 +46,8 @@ restores that standard mapping; the lists can then be adjusted manually.
 
 An unrecorded preview is not retained. Each explicit recording starts its own
 sample indices and time vector at zero; preview gaps between trials are excluded.
-The configured force capacity also ends a recording, leaving the preview running.
+App recordings have no separate force-capacity cutoff. They end when stopped,
+when the task finishes, or when acquisition ends.
 The session-duration limit ends acquisition. Acquisition settings and calibration
 imports are locked during acquisition. Participant/trial/output settings and the
 quadrant window's settings are locked during recording.
@@ -79,7 +82,12 @@ The Raster window has a multi-select MU list (Ctrl/Shift-click) and a
 Each row has at least 28 pixels of space; the plot scrolls vertically when needed.
 Selection affects only this display, persists when reopening the window, and
 resets to all MUs when a new acquisition starts. Every MU is still decoded and recorded.
-**Experimental task** opens a separate window next to **Firing rates**.
+The **Experimental task** button beside **Firing rates** opens two windows:
+**Experiment settings** contains the researcher controls, while **Task feedback**
+contains only participant feedback (Info, MU firing, force and the task quadrant).
+Both experimental windows use a soft off-white background with dark text and axes.
+Move or maximize the windows independently, for example on separate monitors.
+Pressing the button again brings the existing windows forward.
 Choose two MUs from any grid, then check their reference rates and gains. The
 reference fields start from the imported MU rates (or example rates in
 Simulation), can be entered manually, or can be captured during a steady
@@ -110,8 +118,9 @@ are 1 s and six estimates. Force is displayed separately and does not score
 the task.
 
 The block ends and the recording is finalized when all attempts finish or
-the task, recording or acquisition is stopped. Closing the task window
-stops its block too. Existing auto-save and **Save selected** controls apply.
+the task, recording or acquisition is stopped. Closing either experimental window
+stops its block and closes both windows. Minimize the settings window to hide it
+while continuing the experiment. Existing auto-save and **Save selected** controls apply.
 `task_data.task` contains the settings, MU identities, seeded schedule,
 per-block rates and cursor, trial times, intended and unintended hits,
 nearest misses, and the completion status. The usual spike and force data
@@ -178,6 +187,6 @@ to its final name. No base-workspace variables are overwritten.
 
 `test_multigrid_online` exercises I-Spin equivalence, independent routing and
 buffers, empty grids, and replay. `test_online_app` exercises simulation,
-recording boundaries, force zero/capacity, actual UI buttons, MAT saving, and
+recording boundaries, force zero, removal of the capacity cutoff, actual UI buttons, MAT saving, and
 exports `tmp/online_app_validation/app_preview.png`. Neither test connects to
 hardware. Library and DataRecording source files are reused without edits.

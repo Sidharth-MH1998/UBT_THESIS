@@ -253,7 +253,6 @@ classdef OnlineAcquisitionSession < handle
                         force = obj.emptyForce();
                     end
                     if ~isempty(force.data), obj.publishForce(force); end
-                    obj.checkRecordingLimit();
                 else
                     due = floor(toc(obj.Clock)/obj.Config.blockDurationSec);
                     if due > obj.SampleCursor/obj.Config.nsamp
@@ -291,7 +290,6 @@ classdef OnlineAcquisitionSession < handle
                 force.arduinoTime = nan(numel(indices),1); % Original device timestamps are unavailable.
                 obj.appendForce(force);
                 obj.processWindow(emg,force);
-                obj.checkRecordingLimit();
                 return;
             end
             finalForceIndex = floor(endTime*obj.Config.forceFs);
@@ -310,7 +308,6 @@ classdef OnlineAcquisitionSession < handle
             end
             obj.appendForce(force);
             obj.processWindow(emg,force);
-            obj.checkRecordingLimit();
         end
 
         function delete(obj)
@@ -451,20 +448,10 @@ classdef OnlineAcquisitionSession < handle
 
         function appendForce(obj,force)
             if ~obj.Recording || isempty(force.data), return; end
-            remaining = max(0,floor(obj.Config.forceFs*obj.Config.forceMaxDurationSec) - ...
-                size(obj.RecordedForce.data,1));
             names = fieldnames(force);
             for idx = 1:numel(names)
                 obj.RecordedForce.(names{idx}) = ...
-                    [obj.RecordedForce.(names{idx}); force.(names{idx})(1:min(remaining,end),:)];
-            end
-        end
-
-        function checkRecordingLimit(obj)
-            if ~obj.Recording, return; end
-            if size(obj.RecordedForce.data,1) >= floor(obj.Config.forceFs*obj.Config.forceMaxDurationSec)
-                obj.stopRecording();
-                obj.status('Force recording capacity reached; acquisition continues.');
+                    [obj.RecordedForce.(names{idx}); force.(names{idx})];
             end
         end
 

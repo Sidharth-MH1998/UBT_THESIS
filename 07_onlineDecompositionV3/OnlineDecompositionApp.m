@@ -50,16 +50,16 @@ classdef OnlineDecompositionApp < handle
 
     methods
         function app = OnlineDecompositionApp()
-            background = [0.14 0.14 0.14];
-            foreground = [0.90 0.90 0.90];
-            app.Figure = uifigure('Name','Online Decomposition / Biofeedback', ...
+            background = [0.96 0.955 0.94];
+            foreground = [0.12 0.12 0.12];
+            app.Figure = uifigure('Name','Online EMG decomposition with biofeedback', ...
                 'Position',[60 60 1480 880],'Color',background, ...
                 'CloseRequestFcn',@(~,~) app.closeApp());
             layout = uigridlayout(app.Figure,[1 2], ...
                 'ColumnWidth',{440,'1x'},'Padding',[0 0 0 0], ...
                 'ColumnSpacing',0,'BackgroundColor',background);
             sidebar = uipanel(layout,'BackgroundColor',background, ...
-                'BorderType','line','HighlightColor',[0.4 0.4 0.4]);
+                'BorderType','line','HighlightColor',[0.7 0.7 0.7]);
             controls = uigridlayout(sidebar,[9 1], ...
                 'RowHeight',{36,40,30,44,8,40,30,30,'1x'}, ...
                 'Padding',[12 10 12 10],'RowSpacing',8, ...
@@ -67,25 +67,25 @@ classdef OnlineDecompositionApp < handle
             uilabel(controls,'Text','BIOFEEDBACK','FontSize',22, ...
                 'FontWeight','bold','FontColor',foreground);
             app.ImportButtons = uibutton(controls,'Text','Load MU filter', ...
-                'BackgroundColor',[0.22 0.22 0.22], ...
-                'FontColor',[0.80 0.50 1.0],'FontSize',15, ...
+                'BackgroundColor',[0.45 0.22 0.65], ...
+                'FontColor',[1 1 1],'FontSize',15,'FontWeight','bold', ...
                 'ButtonPushedFcn',@(~,~) app.importDecomposition());
             app.DecompositionLabel = uilabel(controls, ...
                 'Text','No MU filter file selected','WordWrap','on', ...
                 'FontColor',foreground);
             app.DecompositionSummary = uilabel(controls, ...
                 'Text','','WordWrap','on','VerticalAlignment','top', ...
-                'FontColor',[0.70 0.70 0.70]);
+                'FontColor',[0.35 0.35 0.35]);
             uilabel(controls,'Text','');
             app.ImportButtons(2) = uibutton(controls,'Text','Load Force Calibration file', ...
-                'BackgroundColor',[0.22 0.22 0.22], ...
-                'FontColor',[0.80 0.50 1.0],'FontSize',15, ...
+                'BackgroundColor',[0.45 0.22 0.65], ...
+                'FontColor',[1 1 1],'FontSize',15,'FontWeight','bold', ...
                 'ButtonPushedFcn',@(~,~) app.importForceCalibration());
             app.ForceLabel = uilabel(controls, ...
                 'Text','No Force Calibration file selected','WordWrap','on', ...
                 'FontColor',foreground);
             app.ForceSummary = uilabel(controls, ...
-                'Text','','WordWrap','on','FontColor',[0.70 0.70 0.70]);
+                'Text','','WordWrap','on','FontColor',[0.35 0.35 0.35]);
             app.createSettings(controls);
             app.createWorkspace(layout);
             app.syncControls();
@@ -104,7 +104,7 @@ classdef OnlineDecompositionApp < handle
                 delete(app.Session);
             end
             if ~isempty(app.Dashboard) && isvalid(app.Dashboard), delete(app.Dashboard); end
-            if app.hasTaskWindow(), delete(app.TaskWindow); end
+            if ~isempty(app.TaskWindow) && isvalid(app.TaskWindow), delete(app.TaskWindow); end
             if ~isempty(app.Figure) && isgraphics(app.Figure)
                 delete(app.Figure);
             end
@@ -113,7 +113,7 @@ classdef OnlineDecompositionApp < handle
         function cfg = getConfig(app)
             % Read UI settings into the same cfg structure as the launcher.
             setup_online_dependencies();
-            values = struct();
+            values = struct('showLegend',true,'frYLim',60,'forceBufferTimeSec',0);
             names = fieldnames(app.Inputs);
             for idx = 1:numel(names)
                 name = names{idx};
@@ -176,7 +176,7 @@ classdef OnlineDecompositionApp < handle
             else
                 cfg.quadrantReferenceRates = [];
             end
-            for name = {'forceFs','forceMaxDurationSec','forceDisplayTimeSec', ...
+            for name = {'forceFs','forceDisplayTimeSec', ...
                     'forcePlotRateHz','visibleWindowSec','frYLim', ...
                     'quadrantRateWindowSec','quadrantHistorySec','quadrantAxisScale'}
                 validateattributes(cfg.(name{1}),{'numeric'}, ...
@@ -241,7 +241,7 @@ classdef OnlineDecompositionApp < handle
             workspace = uigridlayout(parent,[6 1], ...
                 'RowHeight',{36,30,30,'1x',36,32}, ...
                 'RowSpacing',8, ...
-                'BackgroundColor',[0.14 0.14 0.14]);
+                'BackgroundColor',[0.96 0.955 0.94]);
             toolbar = uigridlayout(workspace,[1 7], ...
                 'ColumnWidth',{160,140,140,140,140,90,'1x'}, ...
                 'ColumnSpacing',8,'Padding',[0 0 0 0]);
@@ -251,8 +251,10 @@ classdef OnlineDecompositionApp < handle
                 'Tooltip','Simulation: synthetic signals. Replay: stored EMG through I-Spin and recorded force when available (otherwise simulated). Hardware: live EMG and force.');
             app.Mode.ValueChangedFcn = @(~,~) app.refreshMuChoices();
             app.StartButton = uibutton(toolbar,'Text','Start acquisition', ...
+                'BackgroundColor',[0.1 0.4 0.8],'FontColor',[1 1 1], ...
                 'ButtonPushedFcn',@(~,~) app.startAcquisition());
             app.StopButton = uibutton(toolbar,'Text','Stop acquisition', ...
+                'BackgroundColor',[0.5 0.5 0.5],'FontColor',[1 1 1], ...
                 'ButtonPushedFcn',@(~,~) app.stopAcquisition());
             app.RecordButton = uibutton(toolbar,'Text','Start recording', ...
                 'BackgroundColor',[0.2 0.55 0.3],'FontColor',[1 1 1], ...
@@ -294,12 +296,12 @@ classdef OnlineDecompositionApp < handle
                 'ButtonPushedFcn',@(~,~) app.saveSelected());
             app.StatusLabel = uilabel(workspace,'Text', ...
                 'Ready. Simulation needs no hardware or imported files.', ...
-                'FontColor',[0.8 0.85 0.8],'WordWrap','on','Tag','acquisitionStatus');
+                'FontColor',[0.15 0.35 0.2],'WordWrap','on','Tag','acquisitionStatus');
             % Style all settings and toolbars consistently with the reference.
             labels = findall(workspace,'Type','uilabel');
-            for item = labels', item.FontColor = [0.9 0.9 0.9]; end
+            for item = labels', item.FontColor = [0.12 0.12 0.12]; end
             grids = findall(workspace,'Type','uigridlayout');
-            for item = grids', item.BackgroundColor = [0.14 0.14 0.14]; end
+            for item = grids', item.BackgroundColor = [0.96 0.955 0.94]; end
         end
 
         function updateQuadrantSettings(app,settings)
@@ -381,7 +383,7 @@ classdef OnlineDecompositionApp < handle
         end
 
         function openExperimentalTask(app)
-            if app.hasTaskWindow(), figure(app.TaskWindow.Figure); return; end
+            if app.hasTaskWindow(), app.TaskWindow.show(); return; end
             try
                 if ~isempty(app.Session) && isvalid(app.Session) && app.Session.Running
                     cfg = app.Session.Config;
@@ -427,7 +429,7 @@ classdef OnlineDecompositionApp < handle
         end
 
         function yes = hasTaskWindow(app)
-            yes = ~isempty(app.TaskWindow) && isvalid(app.TaskWindow) && isgraphics(app.TaskWindow.Figure);
+            yes = ~isempty(app.TaskWindow) && isvalid(app.TaskWindow) && app.TaskWindow.isOpen();
         end
 
         function stopRecording(app)
@@ -623,27 +625,22 @@ classdef OnlineDecompositionApp < handle
             tabs = uitabgroup(parent);
             app.addSettingsTab(tabs,'Acquisition',{
                 'numberOfGrids','Number of grids',2,'number';
+                'forcePort','Arduino port','COM3','text';
                 'activeInputs','Physical inputs','1:2','text';
                 'calibChannels','Calibration channels','1:128','text';
                 'emgChannels','Stream EMG channels','1:64 71:134','text';
                 'emgPreviewChannels','Preview EMG channels','1:8:128','channels';
                 'forceInputChannelCounts','Channels per input','70 70 0 0 0 0 0 0 0 0','text';
-                'blockDurationSec','EMG window (s)',0.128,'number';
+                'blockDurationSec','EMG processing window (s)',0.128,'number';
+                'visibleWindowSec','EMG time window (s)',10,'number';
+                'forceDisplayTimeSec','Force time window (s)',10,'number';
                 'onlineDurationSec','Session duration (s)','Inf','text';
+                'forceFs','Force sampling rate (Hz)',50,'number';
+                'forcePlotRateHz','Live plot refresh rate (Hz)',10,'number';
+                'forceTargetMVC','Force target (% MVC)',30,'number';
+                'printEveryNWindows','Print summary window',10,'number';
                 'recordEMG','Retain EMG',true,'check';
-                'forcePort','Arduino port','COM3','text';
-                'forceFs','Force sampling (Hz)',50,'number';
-                'forceMaxDurationSec','Force capacity (s)',600,'number'});
-            app.addSettingsTab(tabs,'Display',{
-                'visibleWindowSec','MU display window (s)',10,'number';
-                'showLegend','Show MU legend',true,'check';
-                'frYLim','Firing-rate limit (Hz)',60,'number';
-                'printEveryNWindows','Print every N windows',10,'number';
-                'forceDisplayTimeSec','Force display window (s)',10,'number';
-                'forceBufferTimeSec','Force future space (s)',5,'number';
-                'forcePlotRateHz','Force refresh rate (Hz)',10,'number';
-                'showForceTarget','Show MVC target line',true,'check';
-                'forceTargetMVC','Force target (% MVC)',30,'number'});
+                'showForceTarget','Show MVC target line',true,'check'});
             app.addSettingsTab(tabs,'Force calibration',{
                 'forcePromptCalibration','Prompt if file missing',true,'check';
                 'forceDefaultCalibrationFactors','Default factors','10 10 10','text';
@@ -661,14 +658,14 @@ classdef OnlineDecompositionApp < handle
         end
 
         function addSettingsTab(app,tabs,title,fields)
-            tab = uitab(tabs,'Title',title,'BackgroundColor',[0.14 0.14 0.14]);
+            tab = uitab(tabs,'Title',title,'BackgroundColor',[0.96 0.955 0.94]);
             grid = uigridlayout(tab,[size(fields,1) 2], ...
                 'ColumnWidth',{'1x',155}, ...
                 'RowHeight',repmat({34},1,size(fields,1)), ...
                 'Padding',[8 8 8 8],'RowSpacing',6, ...
-                'BackgroundColor',[0.14 0.14 0.14],'Scrollable','on');
+                'BackgroundColor',[0.96 0.955 0.94],'Scrollable','on');
             for row = 1:size(fields,1)
-                uilabel(grid,'Text',fields{row,2},'FontColor',[0.9 0.9 0.9], ...
+                uilabel(grid,'Text',fields{row,2},'FontColor',[0.12 0.12 0.12], ...
                     'WordWrap','on');
                 switch fields{row,4}
                     case 'number'
@@ -684,15 +681,15 @@ classdef OnlineDecompositionApp < handle
                     case 'channels'
                         selector = uigridlayout(grid,[1 2], ...
                             'ColumnWidth',{'1x',65},'Padding',[0 0 0 0], ...
-                            'ColumnSpacing',4,'BackgroundColor',[0.14 0.14 0.14]);
+                            'ColumnSpacing',4,'BackgroundColor',[0.96 0.955 0.94]);
                         control = uieditfield(selector,'Value',fields{row,3});
                         app.ChannelButton = uibutton(selector,'Text','Choose', ...
                             'Tag','chooseEMGChannels', ...
                             'ButtonPushedFcn',@(~,~) app.chooseEmgChannels());
                 end
                 if ~strcmp(fields{row,4},'check')
-                    control.BackgroundColor = [0.20 0.20 0.20];
-                    control.FontColor = [0.84 0.64 1];
+                    control.BackgroundColor = [0.98 0.975 0.96];
+                    control.FontColor = [0.12 0.12 0.12];
                 end
                 app.Inputs.(fields{row,1}) = control;
                 control.Tag = fields{row,1};

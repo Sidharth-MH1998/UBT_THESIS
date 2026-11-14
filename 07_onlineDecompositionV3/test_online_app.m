@@ -9,7 +9,6 @@ cleanup = onCleanup(@() delete(app));
 app.Figure.Visible = 'off';
 cfg = app.getConfig();
 cfg.printEveryNWindows = 0;
-cfg.forceMaxDurationSec = 30;
 session = OnlineAcquisitionSession(cfg,struct(),struct());
 sessionCleanup = onCleanup(@() delete(session));
 session.start(false);
@@ -47,16 +46,17 @@ assert(max(abs(second.online.force.data(:))) < 15,'Force zero did not take effec
 session.stop();
 assert(~session.Running);
 
-% Force capacity ends recording, preserving acquisition and the final EMG window.
+% An old force-capacity setting must no longer truncate or stop app recordings.
 cfg.forceMaxDurationSec = 0.1;
 limited = OnlineAcquisitionSession(cfg,struct(),struct());
 limitedCleanup = onCleanup(@() delete(limited));
 limited.start(false);
 limited.startRecording(metadata);
 limited.advanceSimulation();
-assert(limited.Running && ~limited.Recording);
-assert(size(limited.LastRecording.online.force.data,1) == 5);
-assert(size(limited.LastRecording.online.Pulsetrain,2) == 256);
+assert(limited.Running && limited.Recording);
+unlimitedRecording = limited.stopRecording();
+assert(size(unlimitedRecording.online.force.data,1) == 6);
+assert(size(unlimitedRecording.online.Pulsetrain,2) == 256);
 limited.stop();
 
 % Exercise the actual buttons, embedded plots and automatic MAT-file save.
