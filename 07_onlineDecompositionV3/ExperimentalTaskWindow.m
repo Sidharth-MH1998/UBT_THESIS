@@ -14,6 +14,7 @@ classdef ExperimentalTaskWindow < handle
         AppliedSettings
         Status
         Cursor
+        ForceArrow
         Trail
         TargetShapes
         AngleShapes
@@ -45,7 +46,6 @@ classdef ExperimentalTaskWindow < handle
         LastPhase = ''
         PreviewStatus
         QuadrantStatus
-        QuadrantInstruction
         PreviewSettings = []
         PreviewRates = []
         PreviewTimes = []
@@ -102,6 +102,8 @@ classdef ExperimentalTaskWindow < handle
                 'rateWindow','Rate window (s)',1,'number';
                 'smoothing','Smoothing windows',6,'number';
                 'cursorHistory','Cursor history (s)',1,'number';
+                'cursorForceChannel','Cursor force channel',2,'forceChannel';
+                'cursorForceTolerance','Cursor force tolerance (± % MVC)',5,'number';
                 'seed','Shuffle seed',randi(2^31-1),'number';
                 'experimentNotes','Experiment notes','','text';
                 'showReferenceLines','Show reference lines',false,'check';
@@ -123,6 +125,9 @@ classdef ExperimentalTaskWindow < handle
                             'Value',rows{i,3},'ValueChangedFcn',@(~,~) obj.loadReferences());
                     case 'check'
                         control = uicheckbox(form,'Text','','Value',rows{i,3});
+                    case 'forceChannel'
+                        control = uidropdown(form,'Items',{'Thumb','Index finger','Middle finger'}, ...
+                            'ItemsData',1:3,'Value',rows{i,3});
                     case 'text'
                         control = uieditfield(form,'text','Value',rows{i,3});
                     otherwise
@@ -137,6 +142,8 @@ classdef ExperimentalTaskWindow < handle
             obj.Controls.xMU.Tooltip = 'Choose the earlier-recruited MU. Recruitment threshold is not determined by the grid or MU number.';
             obj.Controls.yMU.Tooltip = 'Choose the later-recruited MU. Recruitment threshold is not determined by the grid or MU number.';
             obj.Controls.referenceForce.Tooltip = 'Optional: enter the actual force used for the reference, if known.';
+            obj.Controls.cursorForceTolerance.Tooltip = ...
+                'Percentage points of MVC above and below the main app force target. Green inside the band, red above, yellow below.';
             obj.Controls.captureSec.Tooltip = 'Hold a steady contraction while capturing. Rates use spike count divided by the captured duration.';
             obj.Controls.seed.Tooltip = 'Use the same seed and repetitions per target to reproduce the same shuffled trial order.';
             obj.Controls.targetRadius.Tooltip = 'Enter a radius greater than 0 and less than 0.25.';
@@ -192,21 +199,20 @@ classdef ExperimentalTaskWindow < handle
             obj.Origin = plot(ax,0.1*cos(theta),0.1*sin(theta),'--', ...
                 'Color',[0.1 0.4 0.85],'LineWidth',1.5);
             obj.Trail = plot(ax,NaN,NaN,'LineWidth',5,'Color',[0.48 0.48 0.48]);
-            obj.Cursor = plot(ax,NaN,NaN,'o','MarkerSize',15, ...
-                'MarkerFaceColor',[1 0.2 0.2],'MarkerEdgeColor','none','Tag','experimentalCursor');
-            obj.QuadrantStatus = text(ax,0.02,0.98,'Live preview starts with acquisition.', ...
+            obj.Cursor = plot(ax,NaN,NaN,'o','MarkerSize',17, ...
+                'MarkerFaceColor',[0.5 0.5 0.5],'MarkerEdgeColor','none','Tag','experimentalCursor');
+            obj.ForceArrow = text(ax,NaN,NaN,'','FontSize',26,'FontWeight','bold', ...
+                'HorizontalAlignment','center','VerticalAlignment','bottom', ...
+                'Interpreter','none','Clipping','on','Visible','off', ...
+                'HitTest','off','PickableParts','none','HandleVisibility','off', ...
+                'Tag','experimentalForceArrow');
+            obj.QuadrantStatus = text(ax,0.02,0.98, ...
+                'X: — pps   Y: — pps | Start acquisition to preview.', ...
                 'Units','normalized','HorizontalAlignment','left','VerticalAlignment','top', ...
                 'FontSize',16,'FontWeight','bold','Color',fg, ...
                 'BackgroundColor',[0.98 0.975 0.96],'Margin',5,'Interpreter','none', ...
                 'Clipping','on','HitTest','off','PickableParts','none', ...
                 'HandleVisibility','off','Tag','experimentalQuadrantStatus');
-            obj.QuadrantInstruction = text(ax,0.02,0.88, ...
-                {'Use the live preview to practice';'moving the cursor.'}, ...
-                'Units','normalized','HorizontalAlignment','left','VerticalAlignment','top', ...
-                'FontSize',18,'FontWeight','bold','Color',[0.25 0.25 0.25], ...
-                'BackgroundColor',[0.98 0.975 0.96],'Margin',5,'Interpreter','none', ...
-                'Clipping','on','HitTest','off','PickableParts','none', ...
-                'HandleVisibility','off','Tag','experimentalQuadrantInstruction');
             [obj.RasterAxes,rasterPanel] = obj.makePlotPanel(feedback, ...
                 'Firing of selected motor units','Time (s)','',bg,fg,36);
             rasterPanel.Layout.Row = 2;
@@ -298,6 +304,8 @@ classdef ExperimentalTaskWindow < handle
                 obj.updateAxisLabels();
             end
             obj.AppliedSettings.blockDurationSec = cfg.blockDurationSec;
+            obj.AppliedSettings.cursorForceTargetMVC = cfg.forceTargetMVC;
+            obj.updateCursorForceColor();
             obj.Controls.rateWindow.Tooltip = sprintf('Acquisition block: %.0f ms. Rates and scoring update once per block.',1000*cfg.blockDurationSec);
             obj.Status.Text = 'Acquisition ready. Check the reference rates, then start the task.';
         end
@@ -345,6 +353,7 @@ classdef ExperimentalTaskWindow < handle
             keep = obj.ForceTime >= t-5;
             obj.ForceTime = obj.ForceTime(keep);
             obj.ForceData = obj.ForceData(keep,:);
+            obj.updateCursorForceColor();
             if t-obj.LastAuxRefresh < 0.1, return; end
             obj.LastAuxRefresh = t;
             for k = 1:3
@@ -368,12 +377,14 @@ classdef ExperimentalTaskWindow < handle
             if obj.Active ~= wasActive, obj.resetPreview(); end
             obj.PreviewStatus.Visible = obj.onOff(~obj.Active);
             obj.QuadrantStatus.Visible = 'on';
-            obj.QuadrantStatus.String = sprintf('Live rates | X: %.1f pps   Y: %.1f pps',state.rates);
+            obj.QuadrantStatus.String = sprintf('X: %.1f pps   Y: %.1f pps | %s', ...
+                state.rates,obj.TaskInstruction.Text);
             if any(state.cursor>MotorUnitTargetTask.AxisMax) || any(state.cursor < -0.12)
-                obj.QuadrantStatus.String = sprintf('%s\nCursor outside plot range',obj.QuadrantStatus.String);
+                obj.QuadrantStatus.String = [obj.QuadrantStatus.String ' | Cursor outside plot range'];
             end
             targets = MotorUnitTargetTask.Targets;
             set(obj.Cursor,'XData',state.cursor(1),'YData',state.cursor(2));
+            obj.updateCursorForceColor();
             set(obj.Trail,'XData',state.trail(:,1),'YData',state.trail(:,2));
             for k = 1:3
                 attempting = strcmp(state.phase,'attempt');
@@ -462,20 +473,16 @@ classdef ExperimentalTaskWindow < handle
                     targets = MotorUnitTargetTask.Targets;
                     if norm(state.cursor-targets(state.target,:)) <= settings.targetRadius
                         obj.TaskInstruction.Text = 'Hold the cursor inside the target circle.';
-                        obj.QuadrantInstruction.String = {'Hold the cursor inside';'the target circle.'};
                     else
                         obj.TaskInstruction.Text = 'Move the cursor to the target circle.';
-                        obj.QuadrantInstruction.String = {'Move the cursor to';'the target circle.'};
                     end
                 case 'rest'
                     duration = settings.restTime;
                     remaining = duration-state.restHeld;
                     label = 'Rest at origin time left';
                     obj.TaskInstruction.Text = 'Return to the origin and rest inside the blue circle.';
-                    obj.QuadrantInstruction.String = {'Return to the origin.';'Rest inside the blue circle.'};
                 otherwise
                     obj.TaskInstruction.Text = 'Task ended. Relax at the origin.';
-                    obj.QuadrantInstruction.String = {'Task ended.';'Relax at the origin.'};
                     obj.TrialTimeLabel.Text = 'Trial time left: —';
                     obj.TrialTimeFill.Visible = 'off';
                     return;
@@ -505,9 +512,10 @@ classdef ExperimentalTaskWindow < handle
             if pair(1)==pair(2) || any(~isfinite(values) | values<=0) || smoothing~=fix(smoothing)
                 obj.resetPreview();
                 set(obj.Cursor,'XData',NaN,'YData',NaN);
+                obj.ForceArrow.Visible = 'off';
                 set(obj.Trail,'XData',NaN,'YData',NaN);
                 obj.PreviewStatus.Text = 'Preview: choose distinct MUs and valid rates, gains and smoothing.';
-                obj.QuadrantStatus.String = {'Live preview';'Check the MU and rate settings.'};
+                obj.QuadrantStatus.String = 'X: — pps   Y: — pps | Check the MU and rate settings.';
                 return;
             end
             if ~isequal(values,obj.PreviewSettings)
@@ -524,12 +532,15 @@ classdef ExperimentalTaskWindow < handle
             obj.PreviewTimes = obj.PreviewTimes(keep);
             obj.PreviewTrail = obj.PreviewTrail(keep,:);
             set(obj.Cursor,'XData',p(1),'YData',p(2));
+            obj.updateCursorForceColor();
             set(obj.Trail,'XData',obj.PreviewTrail(:,1),'YData',obj.PreviewTrail(:,2));
             obj.PreviewStatus.Text = sprintf('Live preview  |  X: %.1f pps   Y: %.1f pps',rate);
-            obj.QuadrantStatus.String = sprintf('Live preview | X: %.1f pps   Y: %.1f pps',rate);
+            obj.QuadrantStatus.String = sprintf( ...
+                'X: %.1f pps   Y: %.1f pps | Use the live preview to practice moving the cursor.',rate);
             if any(p>MotorUnitTargetTask.AxisMax)
                 obj.PreviewStatus.Text = [obj.PreviewStatus.Text '  |  Cursor outside plot range'];
-                obj.QuadrantStatus.String = sprintf('%s\nCursor outside plot range',obj.QuadrantStatus.String);
+                obj.QuadrantStatus.String = sprintf( ...
+                    'X: %.1f pps   Y: %.1f pps | Cursor outside plot range',rate);
             end
         end
 
@@ -549,11 +560,13 @@ classdef ExperimentalTaskWindow < handle
                 settings = obj.readSettings();
                 MotorUnitTargetTask(settings,1); % Validate the settings even before acquisition.
                 obj.AppliedSettings = settings;
+                obj.updateCursorForceColor();
                 set(obj.ReferenceLines,'Visible',obj.onOff(settings.showReferenceLines));
                 set(obj.TargetShapes,'Visible','off');
                 obj.updateAxisLabels();
                 obj.resetPreview();
                 set(obj.Cursor,'XData',NaN,'YData',NaN);
+                obj.ForceArrow.Visible = 'off';
                 set(obj.Trail,'XData',NaN,'YData',NaN);
                 theta = linspace(0,2*pi,100);
                 set(obj.Origin,'XData',settings.restRadius*cos(theta), ...
@@ -580,7 +593,8 @@ classdef ExperimentalTaskWindow < handle
                 settings = struct();
                 for name = {'experimentNotes','targetRadius','angleInnerRadius', ...
                         'targetHold','angleHold','timeout','restTime','restRadius', ...
-                        'repetitions','randomize','seed','rateWindow','smoothing','cursorHistory','showReferenceLines'}
+                        'repetitions','randomize','seed','rateWindow','smoothing','cursorHistory', ...
+                        'showReferenceLines','cursorForceChannel','cursorForceTolerance'}
                     settings.(name{1}) = obj.Controls.(name{1}).Value;
                 end
                 settings.mu = [obj.Controls.xMU.Value obj.Controls.yMU.Value];
@@ -595,6 +609,47 @@ classdef ExperimentalTaskWindow < handle
                 end
                 settings.gain = [obj.Controls.xGain.Value obj.Controls.yGain.Value];
                 settings.blockDurationSec = obj.Cfg.blockDurationSec;
+                settings.cursorForceTargetMVC = obj.Cfg.forceTargetMVC;
+                validateattributes(settings.cursorForceTolerance,{'numeric'}, ...
+                    {'scalar','real','finite','nonnegative'});
+        end
+
+        function updateCursorForceColor(obj)
+            color = [0.5 0.5 0.5]; % No current force sample available.
+            arrow = '';
+            if ~isempty(obj.ForceData)
+                force = obj.ForceData(end,obj.AppliedSettings.cursorForceChannel);
+                target = obj.Cfg.forceTargetMVC;
+                tolerance = obj.AppliedSettings.cursorForceTolerance;
+                if isfinite(force)
+                    if force < target-tolerance
+                        color = [1 0.75 0];
+                        arrow = char(8593); % Increase force.
+                    elseif force > target+tolerance
+                        color = [1 0.2 0.2];
+                        arrow = char(8595); % Decrease force.
+                    else
+                        color = [0.05 0.65 0.2];
+                    end
+                end
+            end
+            obj.Cursor.MarkerFaceColor = color;
+            x = obj.Cursor.XData;
+            y = obj.Cursor.YData;
+            show = ~isempty(arrow) && isscalar(x) && isscalar(y) && isfinite(x) && isfinite(y);
+            if show
+                offset = 0.04;
+                alignment = 'bottom';
+                if strcmp(arrow,char(8595))
+                    offset = -0.04;
+                    alignment = 'top';
+                end
+                set(obj.ForceArrow,'Position',[x y+offset 0], ...
+                    'VerticalAlignment',alignment, ...
+                    'String',arrow,'Color',color,'Visible','on');
+            else
+                obj.ForceArrow.Visible = 'off';
+            end
         end
 
         function startCapture(obj)

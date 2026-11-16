@@ -1,5 +1,23 @@
 # Motor-unit recruitment recording
 
+## Plot a saved trial
+
+Run `PlotMURecruitmentResults.m` and select a MAT file using the file dialog.
+It plots all three force channels with the target above and the MU raster
+below. The selected force channel is emphasized, the time axes are linked
+for zooming, and demo recordings are labelled SIMULATED. Navigate to
+`demo_recordings` in the dialog to inspect a demo trial. Force timestamps and
+EMG sample times retain their original independent clock conventions.
+Use the plot's **Sort MUs by increasing recruitment threshold (RT)** checkbox
+to place the lowest threshold at the bottom; uncheck to restore original order.
+Each MU label includes `(RT 12)`, for example, in percent calibrated force
+(rounded for display; sorting uses the full value). RT is force at that MU's
+first recorded discharge, using the saved selected-channel `signal.path`.
+This is one estimate across the whole trial, not a per-repetition or sustained
+recruitment estimate; a unit already firing at recording start has an onset
+that predates the recording. Missing thresholds are labelled RT N/A and sort
+last. Sorting changes only the display; saved trial data is unchanged.
+
 ## Test without hardware
 
 Run `DemoMURecruitment.m`. No devices or calibration files are needed.

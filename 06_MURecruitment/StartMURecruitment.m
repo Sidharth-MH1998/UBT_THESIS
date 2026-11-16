@@ -38,16 +38,6 @@ cfg.forceDisplayTimeSec = 15;
 cfg.forceBufferTimeSec = 5;     % Future horizontal space on the force plot
 cfg.forcePlotRateHz = 10;
 
-% I-Spin-style quadrant feedback
-cfg.showQuadrant = false;
-cfg.quadrantXMU = 1;
-cfg.quadrantYMU = 2;
-% Quadrant indices use combined MU order: grid 1 MUs, then grid 2, etc.
-cfg.quadrantRateWindowSec = 1.0; % Spike-count window for rates in pps
-cfg.quadrantSmoothingWindows = 4;
-cfg.quadrantHistorySec = 7.5;
-cfg.quadrantAxisMax = [];       % Automatic expansion, starting at 30 pps
-
 % Force calibration
 cfg.forceCalibrationFile = ''; % Empty opens the calibration-file selector
 cfg.forcePromptCalibration = true;
