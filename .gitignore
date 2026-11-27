@@ -1,6 +1,7 @@
 #test data set folder 
 test_data/
 tmp/
+RT/
 
 # MATLAB editor autosaves
 *.asv
