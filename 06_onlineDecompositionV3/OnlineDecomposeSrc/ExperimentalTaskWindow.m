@@ -43,6 +43,7 @@ classdef ExperimentalTaskWindow < handle
         OnStart
         OnStop
         LastAuxRefresh = -Inf
+        PendingForceSamples = 0
         LastPhase = ''
         PreviewStatus
         QuadrantStatus
@@ -282,6 +283,7 @@ classdef ExperimentalTaskWindow < handle
             obj.ForceData = zeros(0,3);
             obj.RasterTime = {[],[]};
             obj.LastAuxRefresh = -Inf;
+            obj.PendingForceSamples = 0;
             obj.LastPhase = '';
             obj.resetPreview();
             obj.updateForceTarget(cfg);
@@ -354,19 +356,28 @@ classdef ExperimentalTaskWindow < handle
             obj.ForceTime = obj.ForceTime(keep);
             obj.ForceData = obj.ForceData(keep,:);
             obj.updateCursorForceColor();
+            obj.PendingForceSamples = obj.PendingForceSamples+size(frame.force.data,1);
+            forceInterval = max(1,round(obj.Cfg.forceFs/obj.Cfg.forcePlotRateHz));
+            if obj.PendingForceSamples >= forceInterval
+                obj.PendingForceSamples = mod(obj.PendingForceSamples,forceInterval);
+                for k = 1:3
+                    set(obj.ForceLines(k),'XData',obj.ForceTime,'YData',obj.ForceData(:,k));
+                end
+                forceStart = max(0,t-2.5);
+                forceSpan = [forceStart forceStart+5];
+                xlim(obj.ForceAxes,forceSpan);
+                xticks(obj.ForceAxes,ceil(forceSpan(1)):floor(forceSpan(2)));
+            end
             if t-obj.LastAuxRefresh < 0.1, return; end
             obj.LastAuxRefresh = t;
-            for k = 1:3
-                set(obj.ForceLines(k),'XData',obj.ForceTime,'YData',obj.ForceData(:,k));
-            end
             for k = 1:2
                 times = obj.RasterTime{k};
                 set(obj.RasterLines(k),'XData',times,'YData',k*ones(size(times)));
             end
             span = [max(0,t-5) max(5,t)];
-            xlim(obj.ForceAxes,span); xlim(obj.RasterAxes,span);
+            xlim(obj.RasterAxes,span);
             seconds = ceil(span(1)):floor(span(2));
-            xticks(obj.ForceAxes,seconds); xticks(obj.RasterAxes,seconds);
+            xticks(obj.RasterAxes,seconds);
         end
 
         function updateTask(obj,state,settings)

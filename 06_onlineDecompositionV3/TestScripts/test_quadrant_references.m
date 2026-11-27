@@ -1,5 +1,6 @@
 function test_quadrant_references()
 %TEST_QUADRANT_REFERENCES Edited means, padding, fixed unequal axes and PPS cursor.
+addpath(fullfile(fileparts(fileparts(mfilename('fullpath'))),'OnlineDecomposeSrc'));
 signal = struct('fsamp',100,'Pulsetrain',{{zeros(2,100),zeros(1,100)}}, ...
     'Dischargetimes',{{[1 11 21],[1 6 11];[1 21 41],[]}});
 edition.mean_fr = {12,24,999;6,[],999}; % Ignore padded MU columns.

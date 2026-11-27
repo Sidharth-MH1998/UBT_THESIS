@@ -1,5 +1,6 @@
 function test_emg_preview()
 %TEST_EMG_PREVIEW Check selected electrodes with a permuted channel mapping.
+addpath(fullfile(fileparts(fileparts(mfilename('fullpath'))),'OnlineDecomposeSrc'));
 app = OnlineDecompositionApp();
 appCleanup = onCleanup(@() delete(app));
 app.Figure.Visible = 'off';

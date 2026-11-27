@@ -27,6 +27,7 @@ classdef OnlineAppDashboard < handle
         Pulses = []
         Quadrant = struct('enabled',false)
         LastRefresh = -inf
+        PendingForceSamples = 0
         Ready = false
         RateFigure = []
         QuadrantFigure = []
@@ -121,6 +122,7 @@ classdef OnlineAppDashboard < handle
             obj.PulseTimes = [];
             obj.Pulses = zeros(numel(labels),0);
             obj.LastRefresh = -inf;
+            obj.PendingForceSamples = 0;
             obj.CurrentTime = 0;
             obj.QuadrantFrames = {};
             obj.QuadrantTimes = [];
@@ -209,6 +211,20 @@ classdef OnlineAppDashboard < handle
             keep = obj.ForceTimes >= forceNow-cfg.forceDisplayTimeSec;
             obj.ForceTimes = obj.ForceTimes(keep);
             obj.ForceData = obj.ForceData(keep,:);
+            obj.PendingForceSamples = obj.PendingForceSamples+size(frame.force.data,1);
+            forceInterval = max(1,round(cfg.forceFs/cfg.forcePlotRateHz));
+            forceDue = obj.PendingForceSamples >= forceInterval;
+            if forceDue
+                % Coalesce buffered samples into one redraw, retaining the remainder.
+                obj.PendingForceSamples = mod(obj.PendingForceSamples,forceInterval);
+                if obj.LivePlotToggle.Value
+                    for idx = 1:3
+                        set(obj.ForceLines(idx),'XData',obj.ForceTimes,'YData',obj.ForceData(:,idx));
+                    end
+                    xlim(obj.ForceAxes,obj.forceTimeLimits(forceNow,cfg.forceDisplayTimeSec));
+                end
+                obj.drawQuadrantForce();
+            end
             if hasEMG
                 % Cache only recent windows so a plot opened later shows history.
                 limit = ceil((cfg.quadrantHistorySec+cfg.quadrantRateWindowSec)/ ...
@@ -222,13 +238,12 @@ classdef OnlineAppDashboard < handle
                     obj.updateQuadrant(frame.spikes,frame.time);
                 end
             end
-            if forceNow-obj.LastRefresh < 1/cfg.forcePlotRateHz, return; end
+            if forceNow-obj.LastRefresh < 1/cfg.forcePlotRateHz
+                if forceDue, drawnow limitrate nocallbacks; end
+                return;
+            end
             obj.LastRefresh = forceNow;
             if obj.LivePlotToggle.Value
-                for idx = 1:3
-                    set(obj.ForceLines(idx),'XData',obj.ForceTimes,'YData',obj.ForceData(:,idx));
-                end
-                xlim(obj.ForceAxes,obj.forceTimeLimits(forceNow,cfg.forceDisplayTimeSec));
                 if ~isempty(obj.EMGTimes)
                     previewFs = cfg.fs/obj.EMGStride;
                     firstSample = round(obj.EMGTimes(1)*previewFs)+1;
@@ -241,7 +256,6 @@ classdef OnlineAppDashboard < handle
             end
             obj.drawRaster();
             obj.drawQuadrantRaster();
-            obj.drawQuadrantForce();
             obj.drawRates();
             obj.drawPulse();
             drawnow limitrate nocallbacks;

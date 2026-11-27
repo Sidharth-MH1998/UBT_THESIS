@@ -1,5 +1,6 @@
 function test_force_target()
 %TEST_FORCE_TARGET Verify the target overlay and saved trial configuration.
+addpath(fullfile(fileparts(fileparts(mfilename('fullpath'))),'OnlineDecomposeSrc'));
 app = OnlineDecompositionApp();
 cleanup = onCleanup(@() delete(app));
 app.Figure.Visible = 'off';
@@ -36,7 +37,7 @@ click(app,'Stop acquisition');
 app.Figure.Position = [20 20 1920 1000];
 drawnow;
 assert(emgAxes.Position(4) > forceAxes.Position(4));
-folder = fullfile(fileparts(fileparts(mfilename('fullpath'))),'tmp','online_app_validation');
+folder = fullfile(fileparts(fileparts(fileparts(mfilename('fullpath')))),'tmp','online_app_validation');
 if ~isfolder(folder), mkdir(folder); end
 exportapp(app.Figure,fullfile(folder,'live_feedback_scaling_preview.png'));
 disp('MVC force target overlay and recording settings checks passed.');

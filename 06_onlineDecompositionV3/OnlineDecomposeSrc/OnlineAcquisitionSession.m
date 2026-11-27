@@ -28,6 +28,7 @@ classdef OnlineAcquisitionSession < handle
         Clock
         Random
         SerialBuffer = ''
+        ForceClockState = []
         ForceCursor = 0
         LastRaw = []
         LastForce = []
@@ -123,6 +124,7 @@ classdef OnlineAcquisitionSession < handle
                 obj.LastRaw = [];
                 obj.LastForce = [];
                 obj.SerialBuffer = '';
+                obj.ForceClockState = [];
                 obj.Clock = tic;
                 obj.Running = true;
                 if useTimer, obj.beginPolling(); end
@@ -416,18 +418,28 @@ classdef OnlineAcquisitionSession < handle
             count = obj.Serial.NumBytesAvailable;
             if count == 0, return; end
             bytes = read(obj.Serial,count,'uint8');
+            receiptTime = toc(obj.Clock);
             obj.SerialBuffer = [obj.SerialBuffer char(bytes(:).')];
             ends = find(obj.SerialBuffer == newline);
             offset = 1;
+            samples = zeros(numel(ends),4);
+            nValid = 0;
             for idx = 1:numel(ends)
                 line = obj.SerialBuffer(offset:ends(idx)-1);
                 offset = ends(idx)+1;
                 sample = sscanf(line,'%f,%f,%f,%f');
                 if numel(sample) == 4 && all(isfinite(sample))
-                    force = obj.addForceSample(force,sample(2:4)',sample(1),toc(obj.Clock));
+                    nValid = nValid+1;
+                    samples(nValid,:) = sample';
                 end
             end
             obj.SerialBuffer = obj.SerialBuffer(offset:end);
+            samples = samples(1:nValid,:);
+            [times,obj.ForceClockState] = map_arduino_force_time( ...
+                samples(:,1),receiptTime,obj.ForceClockState);
+            for idx = 1:nValid
+                force = obj.addForceSample(force,samples(idx,2:4),samples(idx,1),times(idx));
+            end
             assert(numel(obj.SerialBuffer)<65536, ...
                 'Arduino is not sending complete newline-terminated force samples.');
         end

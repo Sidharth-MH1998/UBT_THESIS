@@ -1,7 +1,6 @@
 function test_multigrid_online()
 % Hardware-free regression checks for independent multi-grid streaming.
-folder = fileparts(mfilename('fullpath'));
-addpath(folder);
+addpath(fullfile(fileparts(fileparts(mfilename('fullpath'))),'OnlineDecomposeSrc'));
 setup_online_dependencies();
 rng(7);
 fs = 2000;
@@ -174,7 +173,7 @@ assert(all(isnan(forceOut.arduinoTime)));
 assert(~forceOut.simulated && replay.LastRecording.replay);
 assert(~forceOut.calibrationAppliedDuringReplay && isempty(forceOut.calibrationFactors));
 % Save an edited fixture to exercise app imports separately from file pickers.
-fixtureFolder = fullfile(fileparts(fileparts(mfilename('fullpath'))), ...
+fixtureFolder = fullfile(fileparts(fileparts(fileparts(mfilename('fullpath')))), ...
     'tmp','online_app_validation');
 if ~isfolder(fixtureFolder), mkdir(fixtureFolder); end
 edition = struct('Pulsetrain',{signal.Pulsetrain}, ...

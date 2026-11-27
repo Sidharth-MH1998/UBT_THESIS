@@ -280,7 +280,7 @@ classdef OnlineDecompositionApp < handle
             output = uigridlayout(workspace,[1 4], ...
                 'ColumnWidth',{90,480,80,'1x'},'ColumnSpacing',8,'Padding',[0 0 0 0]);
             uilabel(output,'Text','Output folder');
-            root = fileparts(fileparts(mfilename('fullpath')));
+            root = fileparts(fileparts(fileparts(mfilename('fullpath'))));
             app.OutputFolder = uieditfield(output,'Value',fullfile(root,'online_results'), ...
                 'Tag','outputFolder');
             app.BrowseButton = uibutton(output,'Text','Browse', ...
@@ -782,7 +782,7 @@ classdef OnlineDecompositionApp < handle
             if nargin < 2
                 [name,folder] = uigetfile('*.mat', ...
                     'Load MU filter from edited decomposition result', ...
-                    fileparts(mfilename('fullpath')));
+                    fileparts(fileparts(mfilename('fullpath'))));
                 if isequal(name,0), return; end
                 file = fullfile(folder,name);
             end
@@ -853,7 +853,7 @@ classdef OnlineDecompositionApp < handle
         function importForceCalibration(app,file)
             if nargin < 2
                 [name,folder] = uigetfile('*.mat','Load Force Calibration file', ...
-                    fileparts(mfilename('fullpath')));
+                    fileparts(fileparts(mfilename('fullpath'))));
                 if isequal(name,0), return; end
                 file = fullfile(folder,name);
             end

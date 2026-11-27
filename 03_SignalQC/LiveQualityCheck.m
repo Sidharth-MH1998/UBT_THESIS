@@ -11,9 +11,9 @@ addpath(scriptDirectory, fullfile(repositoryDirectory,'01_DataRecording','srcNov
 
 %% 1. EMG quality-check settings
 
-cfg.activeInputs = 1 ;% [1 2];             % Novecento inputs used for recording.
-cfg.emgChannels = 1:64 ;% [1:64 71:134];      % Channels retained from the stacked inputs.
-cfg.previewChannels = 1:4:64;         % Retained-channel indices shown in the plot.
+cfg.activeInputs = [1 2];             % Novecento inputs used for recording.
+cfg.emgChannels = [1:64 71:134];      % Channels retained from the stacked inputs.
+cfg.previewChannels = 1:8:128;         % Retained-channel indices shown in the plot.
 cfg.blockDurationSec = 0.05;          % Read/update every 50 ms for live heatmaps.
 cfg.visibleWindowSec = 1;            % Duration shown in the moving plot, in seconds.
 cfg.recordDurationSec = 60;           % USER SETTING: total recording time in seconds.
@@ -400,7 +400,10 @@ for g = 1:ng
     state.rows(:,g) = rows(:);
     type = upper(string(opt.gridTypes{min(g,numel(opt.gridTypes))}));
     switch type
-        case {"GR08MM1305","HD08MM1305","GR04MM1305","HD04MM1305"}
+        case {"GR08MM1305","HD08MM1305"}
+            % Match the printed electrode numbering in the existing GR orientation.
+            map = [[NaN; (1:12).'] (13:25).' (26:38).' (39:51).' (52:64).'];
+        case {"GR04MM1305","HD04MM1305"}
             % formatsignalHDEMG repository convention, absent corner as NaN.
             map = [NaN 25 26 51 52; (1:12).' (24:-1:13).' ...
                 (27:38).' (50:-1:39).' (53:64).'];

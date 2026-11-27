@@ -1,5 +1,6 @@
 function test_quadrant_window()
 %TEST_QUADRANT_WINDOW Settings live in the popup and persist into recorded cfg.
+addpath(fullfile(fileparts(fileparts(mfilename('fullpath'))),'OnlineDecomposeSrc'));
 app = OnlineDecompositionApp();
 cleanup = onCleanup(@() delete(app));
 app.Figure.Visible = 'off';
@@ -81,7 +82,7 @@ assert(strcmp(findall(popup,'Tag','applyQuadrantSettings').Enable,'on'));
 click(app.Figure,'Stop acquisition');
 popup.Position = [20 20 1600 900];
 drawnow;
-root = fileparts(fileparts(mfilename('fullpath')));
+root = fileparts(fileparts(fileparts(mfilename('fullpath'))));
 exportapp(popup,fullfile(root,'tmp','online_app_validation','quadrant_settings_preview.png'));
 disp('Quadrant popup settings, persistence and recording-lock checks passed.');
 end

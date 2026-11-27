@@ -1,5 +1,6 @@
 function test_raster_selection()
 %TEST_RASTER_SELECTION Verify 29+5 MU scrolling, mapping and display-only selection.
+addpath(fullfile(fileparts(fileparts(mfilename('fullpath'))),'OnlineDecomposeSrc'));
 app = OnlineDecompositionApp();
 appCleanup = onCleanup(@() delete(app));
 app.Figure.Visible = 'off';
@@ -29,7 +30,7 @@ assert(strcmp(viewport.Scrollable,'on'));
 assert(viewport.RowHeight{1} >= 28*34+90);
 assert(numel(findall(ax,'Type','line')) == 34);
 assert(isequal(cellstr(ax.YTickLabel),labels(:)));
-folder = fullfile(fileparts(fileparts(mfilename('fullpath'))),'tmp','online_app_validation');
+folder = fullfile(fileparts(fileparts(fileparts(mfilename('fullpath')))),'tmp','online_app_validation');
 if ~isfolder(folder), mkdir(folder); end
 exportapp(popup,fullfile(folder,'raster_scroll_preview.png'));
 selected = [1 29 30 34];

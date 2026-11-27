@@ -1,7 +1,8 @@
 function test_online_app()
 %TEST_ONLINE_APP Exercise preview, recording boundaries, saving and embedded UI.
 % Uses simulation only. Artifacts are written under tmp/online_app_validation.
-root = fileparts(fileparts(mfilename('fullpath')));
+addpath(fullfile(fileparts(fileparts(mfilename('fullpath'))),'OnlineDecomposeSrc'));
+root = fileparts(fileparts(fileparts(mfilename('fullpath'))));
 folder = fullfile(root,'tmp','online_app_validation');
 if ~isfolder(folder), mkdir(folder); end
 app = OnlineDecompositionApp();

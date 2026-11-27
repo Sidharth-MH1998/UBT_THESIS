@@ -1,5 +1,6 @@
 function test_experimental_task()
 % Exercise scoring independently, then open, run and save a simulated UI block.
+addpath(fullfile(fileparts(fileparts(mfilename('fullpath'))),'OnlineDecomposeSrc'));
 s = struct('mu',[1 2],'referencePPS',[100 100],'gain',[1 1], ...
     'targetRadius',0.10,'angleInnerRadius',0.40,'targetHold',0.2,'angleHold',0.2, ...
     'timeout',0.9,'restTime',0.1,'restRadius',0.1,'rateWindow',0.1, ...
@@ -90,7 +91,7 @@ assert(~isfield(saved.task_data,'online'));
 assert(isequaln(saved.task_data.fulltask_data,result.fulltask_data));
 assert(~isempty(saved.task_data.fulltask_data.Pulsetrain));
 click(findall(app.Figure,'Text','Stop acquisition'));
-root = fileparts(fileparts(mfilename('fullpath')));
+root = fileparts(fileparts(fileparts(mfilename('fullpath'))));
 exportapp(window,fullfile(root,'tmp','experimental_task_preview.png'));
 feedback.Position = [20 20 1500 900];
 drawnow;
