@@ -7,7 +7,6 @@ MATLAB tools for recording multi-grid EMG and force, extracting motor units, and
 | Folder | Purpose |
 | --- | --- |
 | `000_Library` | Shared functions, I-Spin methods, and plotting utilities. |
-| `000_testData/phase 3` | Reference script for communicating with and reading data from Novecento+. |
 | [01_PseudoOnlineDecomposition](01_PseudoOnlineDecomposition/README.md) | Replay recorded EMG in blocks and compare results with offline decomposition. |
 | [02_DataRecording](02_DataRecording/README.md) | Calibrate force sensors and record Novecento EMG and Arduino force. |
 | [03_SignalQC](03_SignalQC/README.md) | Check live or recorded EMG quality and identify potentially bad channels. |
