@@ -23,7 +23,7 @@ Hardware-free test functions are in `TestScripts`, separate from `OnlineDecompos
 From the repository root, run a test with:
 
 ```matlab
-addpath(fullfile('07_onlineDecompositionV3','TestScripts'));
+addpath(fullfile('06_onlineDecompositionV3','TestScripts'));
 test_experimental_task
 ```
 
